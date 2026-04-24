@@ -1,0 +1,56 @@
+# =============================================================================
+# PyCronGuard 默认配置
+# =============================================================================
+
+# 调度器配置
+scheduler:
+  max_workers: 4          # 线程池最大工作线程数
+  max_instances: 1        # 同一任务最大并发实例数
+  timezone: "Asia/Shanghai"
+
+# 数据库存储配置
+storage:
+  db_path: "~/.pycronguard/data.db"
+
+# 日志配置
+log:
+  log_dir: "~/.pycronguard/logs"
+  level: "INFO"           # DEBUG / INFO / WARNING / ERROR / CRITICAL
+  max_days: 30            # 日志保留天数
+  json_format: true       # 是否使用 JSON 格式输出
+
+# 告警配置
+alert:
+  failure_immediate: true              # 失败后立即告警
+  consecutive_failure_threshold: 3     # 连续失败 N 次后告警
+  cooldown_seconds: 300                # 同一任务告警冷却时间（秒）
+
+  email:
+    enabled: false
+    smtp_host: ""
+    smtp_port: 587
+    use_tls: true
+    username: ""
+    password: ""
+    sender: ""
+    recipients: []
+
+# 恢复与健康检查配置
+recovery:
+  max_retries: 3          # 最大重试次数
+  retry_delay: 10.0       # 重试初始延迟（秒）
+  backoff_factor: 2.0     # 指数退避因子
+  health_check_interval: 60  # 健康检查间隔（秒）
+  cpu_threshold: 90.0     # CPU 使用率告警阈值（%）
+  memory_threshold: 90.0  # 内存使用率告警阈值（%）
+  disk_threshold: 90.0    # 磁盘使用率告警阈值（%）
+  task_timeout: 3600      # 任务超时时间（秒）
+
+# 脚本管理配置
+script:
+  script_dir: "~/.pycronguard/scripts"
+  version_dir: "~/.pycronguard/script_versions"
+  max_versions: 10        # 每个脚本最大保留版本数
+
+# PID 文件路径
+pid_file: "~/.pycronguard/pycronguard.pid"

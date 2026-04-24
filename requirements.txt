@@ -1,0 +1,6 @@
+apscheduler>=3.10.0
+pyyaml>=6.0
+sqlalchemy>=2.0
+click>=8.0
+psutil>=5.9
+watchdog>=3.0

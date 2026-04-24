@@ -1,0 +1,16 @@
+[Unit]
+Description=PyCronGuard - Python Task Scheduler
+After=network.target
+
+[Service]
+Type=simple
+User=eden
+ExecStart=/Library/Frameworks/Python.framework/Versions/3.14/bin/python3 -m pycronguard start --foreground
+WorkingDirectory=/Users/eden
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
