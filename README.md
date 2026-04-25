@@ -1,5 +1,9 @@
 # PyCronGuard
 
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey.svg)]()
+
 **PyCronGuard** 是一个功能完备的 Python 定时任务管理与监控系统，提供任务调度、脚本管理、运行监控、告警通知和异常自愈等能力。
 
 ## 功能特性
@@ -7,13 +11,35 @@
 - **灵活调度** — 支持 cron 表达式、每日/每周/每月/间隔等多种调度方式
 - **节假日感知** — 支持中国法定节假日/工作日识别，任务可配置仅工作日、仅节假日、跳过节假日等模式
 - **优先级队列** — 基于堆的任务优先级排序，支持并发控制和依赖管理
+- **任务依赖** — 支持任务间依赖关系，控制执行顺序
+- **单任务并发控制** — 每个任务可独立配置最大并发实例数
 - **脚本管理** — 脚本注册、版本控制、语法校验、自动备份
+- **虚拟环境隔离** — 为脚本指定独立 Python 环境，避免依赖冲突
 - **实时监控** — 任务执行追踪、系统资源指标采集 (CPU/内存/磁盘)
+- **执行历史与统计** — 完整的任务执行记录和失败率分析
 - **智能告警** — 即时失败告警、连续失败告警、性能阈值告警，支持邮件通知
 - **异常自愈** — 自动重试 (指数退避)、健康检查、死锁检测与自动终止
 - **守护进程** — 支持前台/后台运行，PID 管理，优雅关闭
-- **配置热加载** — YAML 配置文件修改后自动重载
+- **配置热重载** — 修改配置后发送 SIGHUP 信号即可生效，无需重启
 - **系统服务** — 自动生成 systemd / launchd / Windows 服务配置
+
+## 系统要求
+
+- **Python：** 3.10 及以上
+- **操作系统：** Linux, macOS（Windows 可通过 WSL2 使用）
+- **数据库：** SQLite（内置，无需单独安装）
+
+### 核心依赖
+
+| 包名 | 版本要求 | 说明 |
+|------|---------|------|
+| apscheduler | >=3.10.0 | 任务调度引擎 |
+| pyyaml | >=6.0 | 配置文件解析 |
+| sqlalchemy | >=2.0 | ORM 数据存储 |
+| click | >=8.0 | CLI 框架 |
+| psutil | >=5.9 | 系统资源监控 |
+| watchdog | >=3.0 | 文件系统变更监听 |
+| chinesecalendar | >=1.0 | 中国节假日识别 |
 
 ## 快速开始
 
@@ -124,19 +150,19 @@ pycronguard stop
 
 **task add 选项：**
 
-| 选项 | 必填 | 说明 |
-|------|------|------|
-| `-n, --name` | 是 | 任务名称 |
-| `-s, --script` | 是 | 脚本路径 |
-| `-t, --schedule-type` | 是 | 调度类型 (cron/daily/weekly/monthly/interval) |
-| `-S, --schedule` | 是 | 调度表达式 |
-| `-p, --priority` | 否 | 优先级 1-10，默认 5 |
-| `--timeout` | 否 | 超时时间(秒)，默认 3600 |
-| `--max-retries` | 否 | 最大重试次数，默认 3 |
-| `--category` | 否 | 分类 |
-| `--description` | 否 | 描述 |
-| `--depends-on` | 否 | 依赖的任务名称（可多次指定） |
-| `--holiday-mode` | 否 | 节假日模式 (none/workday_only/holiday_only/skip_holiday/skip_workday)，默认 none |
+| 选项 | 必填 | 默认值 | 说明 |
+|------|------|--------|------|
+| `-n, --name` | 是 | — | 任务名称 |
+| `-s, --script` | 是 | — | 脚本路径 |
+| `-t, --schedule-type` | 是 | — | 调度类型 (cron/daily/weekly/monthly/interval) |
+| `-S, --schedule` | 是 | — | 调度表达式 |
+| `-p, --priority` | 否 | `5` | 优先级 1-10 |
+| `--timeout` | 否 | `3600` | 超时时间(秒) |
+| `--max-retries` | 否 | `3` | 最大重试次数 |
+| `--category` | 否 | `""` | 分类 |
+| `--description` | 否 | `""` | 描述 |
+| `--depends-on` | 否 | — | 依赖的任务名称（可多次指定） |
+| `--holiday-mode` | 否 | `none` | 节假日模式 (none/workday_only/holiday_only/skip_holiday/skip_workday) |
 
 ### 脚本管理
 
@@ -329,25 +355,101 @@ TaskExecutor.on_task_complete  →  ExecutionTracker.on_task_complete
 
 ## 编写任务脚本
 
-任务脚本是标准的 Python 文件，通过 `python script.py` 方式调用：
+任务脚本是标准的 Python 文件，通过 `python script.py` 方式调用。
+
+项目内置了一个完整的示例脚本 [`scripts/example_task.py`](scripts/example_task.py)，核心结构如下：
 
 ```python
 #!/usr/bin/env python3
-import sys
+"""PyCronGuard 示例任务脚本。"""
 
-def main():
-    # 你的任务逻辑
-    print("任务执行中 ...")
-    return 0  # 返回 0 表示成功
+from __future__ import annotations
+
+import sys
+import time
+from datetime import datetime
+
+
+def main() -> int:
+    """任务主函数。
+
+    Returns:
+        退出码: 0 表示成功，1 表示失败。
+    """
+    start_time = time.monotonic()
+
+    print(f"[{datetime.now().isoformat()}] 示例任务开始执行")
+    print(f"  Python 版本: {sys.version}")
+
+    try:
+        # ---- 在这里编写你的任务逻辑 ----
+        print("  正在处理数据 ...")
+        time.sleep(2)
+        print("  数据处理完成")
+
+        elapsed = time.monotonic() - start_time
+        print(f"[{datetime.now().isoformat()}] 任务执行成功 (耗时: {elapsed:.2f}s)")
+        return 0  # 成功
+
+    except Exception as exc:
+        elapsed = time.monotonic() - start_time
+        print(f"[{datetime.now().isoformat()}] 任务执行失败 (耗时: {elapsed:.2f}s)", file=sys.stderr)
+        print(f"  错误: {exc}", file=sys.stderr)
+        return 1  # 失败
+
 
 if __name__ == "__main__":
     sys.exit(main())
 ```
 
+**脚本规范：**
+
 - 退出码 `0` = 成功，非 `0` = 失败
 - stdout 会被记录到执行日志
 - stderr 会在失败时用于告警消息
 
+## 贡献指南
+
+欢迎对 PyCronGuard 项目提出改进建议和代码贡献！
+
+### 开发环境设置
+
+```bash
+# 克隆仓库
+git clone https://gitee.com/eden2f/py-cron-guard.git
+cd PyCronGuard
+
+# 安装项目及开发依赖
+pip install -e ".[dev]"
+
+# 运行测试
+pytest
+```
+
+### 代码提交流程
+
+1. **Fork** 本仓库到你的 Gitee 账号
+2. **创建分支** — `git checkout -b feature/your-feature`
+3. **提交更改** — `git commit -m "feat: 添加某某功能"`
+4. **推送分支** — `git push origin feature/your-feature`
+5. **提交 Pull Request** — 在 Gitee 上发起合并请求
+
+### 代码规范
+
+- 遵循 [PEP 8](https://peps.python.org/pep-0008/) 编码风格
+- 新功能请添加对应的单元测试
+- 更新相关文档说明
+
+### 问题报告
+
+提交 Issue 时请包含以下信息：
+
+- **PyCronGuard 版本：** `pip show pycronguard`
+- **Python 版本：** `python --version`
+- **操作系统：** 系统类型及版本
+- **错误堆栈：** 完整的 traceback 输出
+- **复现步骤：** 最小化的操作步骤
+
 ## 许可证
 
-MIT License
+本项目基于 [MIT License](LICENSE) 开源。
