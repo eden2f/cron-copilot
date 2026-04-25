@@ -421,7 +421,7 @@ if __name__ == "__main__":
 
 ## AI 辅助使用
 
-PyCronGuard 内置了面向 AI 编程助手的 Skill（`skills/pycronguard-ops/`），支持 [Qoder](https://qoder.ai) 等兼容 Skill 协议的 AI 产品自动加载运维指南，通过自然语言对话即可完成日常操作。其他 AI 产品的用户也可以参考 [`skills/pycronguard-ops/SKILL.md`](skills/pycronguard-ops/SKILL.md) 中的运维指南来使用 PyCronGuard。
+PyCronGuard 内置了面向 AI 编程助手的 Skill（`skills/pycronguard-ops/`），支持兼容 Skill 协议的 AI 产品自动加载运维指南，通过自然语言对话即可完成日常操作。其他 AI 产品的用户也可以参考 [`skills/pycronguard-ops/SKILL.md`](skills/pycronguard-ops/SKILL.md) 中的运维指南来使用 PyCronGuard。
 
 ### AI 能帮你做什么
 
