@@ -41,6 +41,8 @@ class TaskConfig:
         description: Optional free-text description.
         venv_path: Optional path to a Python virtual environment.
         max_instances: Maximum concurrent instances of this task.
+        holiday_mode: Holiday schedule mode — ``none``, ``workday_only``,
+            ``holiday_only``, ``skip_holiday``, or ``skip_workday``.
     """
 
     task_id: str = ""
@@ -57,6 +59,7 @@ class TaskConfig:
     description: str = ""
     venv_path: str = ""
     max_instances: int = 1
+    holiday_mode: str = "none"  # "none" | "workday_only" | "holiday_only" | "skip_holiday" | "skip_workday"
 
     def __post_init__(self) -> None:
         if not self.task_id:
@@ -239,6 +242,7 @@ def task_config_to_record(config: TaskConfig) -> TaskRecord:
         description=config.description or None,
         venv_path=config.venv_path or None,
         max_instances=config.max_instances,
+        holiday_mode=config.holiday_mode or "none",
     )
     logger.debug("Converted TaskConfig %s to TaskRecord", config.task_id)
     return record
@@ -277,4 +281,5 @@ def record_to_task_config(record: TaskRecord) -> TaskConfig:
         description=record.description or "",
         venv_path=record.venv_path or "",
         max_instances=record.max_instances,
+        holiday_mode=getattr(record, 'holiday_mode', None) or "none",
     )

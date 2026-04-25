@@ -45,6 +45,10 @@ class TaskRecord(Base):
     max_instances: Mapped[int] = mapped_column(
         Integer, default=1, comment="Max concurrent instances for this task"
     )
+    holiday_mode: Mapped[str | None] = mapped_column(
+        String(32), default="none", nullable=True,
+        comment="none / workday_only / holiday_only / skip_holiday / skip_workday",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )

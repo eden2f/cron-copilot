@@ -15,6 +15,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from pycronguard.config.schema import AppConfig
 from pycronguard.core.executor import TaskExecutor
+from pycronguard.core.holiday import get_holiday_checker
 from pycronguard.core.task import (
     TaskConfig,
     parse_schedule,
@@ -50,6 +51,7 @@ class SchedulerManager:
             timezone=config.scheduler.timezone,
         )
         self._tasks: Dict[str, TaskConfig] = {}
+        self._holiday_checker = get_holiday_checker()
 
         logger.info(
             "SchedulerManager initialised (timezone=%s)", config.scheduler.timezone
@@ -339,6 +341,18 @@ class SchedulerManager:
 
         if not task_config.enabled:
             logger.debug("Task %s is disabled; skipping execution", task_id)
+            return
+
+        # 节假日检查
+        from datetime import datetime as dt
+
+        today = dt.now().date()
+        holiday_mode = getattr(task_config, 'holiday_mode', 'none') or 'none'
+        if not self._holiday_checker.should_execute(today, holiday_mode):
+            logger.info(
+                "Task %s (%s) skipped due to holiday_mode=%s on %s",
+                task_id, task_config.name, holiday_mode, today,
+            )
             return
 
         self._executor.submit(task_config)

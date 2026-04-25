@@ -43,6 +43,19 @@ class DatabaseManager:
 
         # Create tables if they don't exist yet.
         Base.metadata.create_all(self._engine)
+
+        # 自动迁移：为已有表添加新列
+        import sqlalchemy
+        with self._engine.connect() as conn:
+            inspector = sqlalchemy.inspect(self._engine)
+            columns = [c['name'] for c in inspector.get_columns('tasks')]
+            if 'holiday_mode' not in columns:
+                conn.execute(sqlalchemy.text(
+                    "ALTER TABLE tasks ADD COLUMN holiday_mode VARCHAR(32) DEFAULT 'none'"
+                ))
+                conn.commit()
+                logger.info("Migrated: added holiday_mode column to tasks table")
+
         logger.info("Database initialised at %s", db_path)
 
     # ------------------------------------------------------------------

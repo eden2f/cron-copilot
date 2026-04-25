@@ -448,6 +448,12 @@ def task() -> None:
 @click.option("--category", default="", help="分类")
 @click.option("--description", default="", help="描述")
 @click.option("--depends-on", multiple=True, help="依赖的任务名称")
+@click.option(
+    '--holiday-mode',
+    type=click.Choice(['none', 'workday_only', 'holiday_only', 'skip_holiday', 'skip_workday']),
+    default='none',
+    help='节假日模式',
+)
 @click.pass_context
 def task_add(
     ctx: click.Context,
@@ -461,6 +467,7 @@ def task_add(
     category: str,
     description: str,
     depends_on: Tuple[str, ...],
+    holiday_mode: str,
 ) -> None:
     """添加新任务"""
     config_path = ctx.obj.get("config_path") or _DEFAULT_CONFIG_PATH
@@ -513,6 +520,7 @@ def task_add(
         category=category,
         description=description,
         dependencies=dep_ids,
+        holiday_mode=holiday_mode,
     )
 
     # Save to database
@@ -585,15 +593,16 @@ def task_list(ctx: click.Context, category: Optional[str], status: Optional[str]
         return
 
     # Table output
-    header = f"{'名称':<20} {'类型':<10} {'调度':<20} {'优先级':<6} {'状态':<6} {'分类':<10}"
+    header = f"{'名称':<20} {'类型':<10} {'调度':<20} {'优先级':<6} {'状态':<6} {'节假日':<14} {'分类':<10}"
     click.echo(header)
-    click.echo("-" * 76)
+    click.echo("-" * 90)
     for t in tasks:
         enabled_str = "启用" if t.enabled else "禁用"
+        hm = getattr(t, 'holiday_mode', None) or 'none'
         click.echo(
             f"{t.name:<20} {(t.schedule_type or 'cron'):<10} "
             f"{(t.cron_expression or ''):<20} {t.priority:<6} "
-            f"{enabled_str:<6} {(t.category or ''):<10}"
+            f"{enabled_str:<6} {hm:<14} {(t.category or ''):<10}"
         )
 
     click.echo(f"\n共 {len(tasks)} 个任务")
@@ -685,6 +694,9 @@ def task_history(ctx: click.Context, name: str, days: int, limit: int, stats_onl
     # Header
     click.echo(f"任务: {record.name}")
     click.echo(f"调度: {record.schedule_type or 'cron'} | {record.cron_expression or '(未设置)'}")
+    hm = getattr(record, 'holiday_mode', None) or 'none'
+    if hm != 'none':
+        click.echo(f"节假日模式: {hm}")
     click.echo()
 
     # ---- Statistics ----

@@ -23,6 +23,7 @@ from pycronguard.core.task import TaskConfig
 from pycronguard.logging.logger import get_logger
 from pycronguard.storage.database import DatabaseManager
 from pycronguard.storage.models import TaskExecution
+from pycronguard.core.holiday import get_holiday_checker
 
 logger = get_logger(__name__)
 
@@ -100,6 +101,20 @@ class TaskExecutor:
         if self._shutdown:
             logger.warning("Executor is shut down; rejecting task %s", task_config.task_id)
             return False
+
+        # 节假日二次校验
+        from datetime import datetime as dt
+
+        holiday_mode = getattr(task_config, 'holiday_mode', 'none') or 'none'
+        if holiday_mode != 'none':
+            checker = get_holiday_checker()
+            today = dt.now().date()
+            if not checker.should_execute(today, holiday_mode):
+                logger.info(
+                    "Task %s rejected by holiday check: mode=%s, date=%s",
+                    task_config.task_id, holiday_mode, today,
+                )
+                return False
 
         # Concurrency limit per task
         if not self._check_max_instances(task_config):
