@@ -5,6 +5,7 @@
 ## 功能特性
 
 - **灵活调度** — 支持 cron 表达式、每日/每周/每月/间隔等多种调度方式
+- **节假日感知** — 支持中国法定节假日/工作日识别，任务可配置仅工作日、仅节假日、跳过节假日等模式
 - **优先级队列** — 基于堆的任务优先级排序，支持并发控制和依赖管理
 - **脚本管理** — 脚本注册、版本控制、语法校验、自动备份
 - **实时监控** — 任务执行追踪、系统资源指标采集 (CPU/内存/磁盘)
@@ -20,7 +21,7 @@
 
 ```bash
 # 克隆项目
-git clone <repository-url>
+git clone https://gitee.com/eden2f/py-cron-guard.git
 cd PyCronGuard
 
 # 安装（开发模式）
@@ -63,6 +64,14 @@ pycronguard task add \
     --script scripts/example_task.py \
     --schedule-type daily \
     --schedule "08:00"
+
+# 添加仅工作日执行的任务（自动识别法定节假日和调休）
+pycronguard task add \
+    --name workday-report \
+    --script scripts/example_task.py \
+    --schedule-type daily \
+    --schedule "09:00" \
+    --holiday-mode workday_only
 
 # 手动执行一次
 pycronguard task run my-task
@@ -111,6 +120,7 @@ pycronguard stop
 | `pycronguard task remove <name>` | 删除任务 |
 | `pycronguard task list` | 列出所有任务 |
 | `pycronguard task run <name>` | 立即执行一次任务 |
+| `pycronguard task history <name>` | 查看任务执行历史和统计 |
 
 **task add 选项：**
 
@@ -126,6 +136,7 @@ pycronguard stop
 | `--category` | 否 | 分类 |
 | `--description` | 否 | 描述 |
 | `--depends-on` | 否 | 依赖的任务名称（可多次指定） |
+| `--holiday-mode` | 否 | 节假日模式 (none/workday_only/holiday_only/skip_holiday/skip_workday)，默认 none |
 
 ### 脚本管理
 
@@ -136,6 +147,19 @@ pycronguard stop
 | `pycronguard script list` | 列出所有脚本 |
 | `pycronguard script info <name>` | 查看脚本详情和版本历史 |
 
+### 任务执行历史
+
+```bash
+# 查看最近 30 天的执行记录和统计
+pycronguard task history <name>
+
+# 查看最近 7 天，显示 50 条记录
+pycronguard task history <name> --days 7 --limit 50
+
+# 仅查看统计摘要
+pycronguard task history <name> --stats-only
+```
+
 ### 调度表达式格式
 
 | 类型 | 格式 | 示例 |
@@ -145,6 +169,49 @@ pycronguard stop
 | `weekly` | `day@HH:MM` | `mon@08:00` (每周一 8:00) |
 | `monthly` | `day@HH:MM` | `1@08:00` (每月 1 日 8:00) |
 | `interval` | `<数字><单位>` | `30m`, `2h`, `1d`, `90s` |
+
+## 节假日/工作日识别
+
+PyCronGuard 集成了 `chinesecalendar` 库，支持中国法定节假日和调休工作日的智能识别。
+
+### 节假日模式
+
+通过 `--holiday-mode` 参数控制任务的节假日行为：
+
+| 模式 | 说明 | 适用场景 |
+|------|------|---------|
+| `none` | 不启用节假日感知（默认） | 普通定时任务 |
+| `workday_only` | 仅工作日执行（含调休工作日，排除法定节假日和周末） | 工作日报表、数据同步 |
+| `holiday_only` | 仅节假日/周末执行 | 节假日维护任务 |
+| `skip_holiday` | 常规调度，遇法定节假日跳过 | 日常任务，节假日暂停 |
+| `skip_workday` | 常规调度，遇工作日跳过 | 仅在休息日运行的任务 |
+
+### 使用示例
+
+```bash
+# 仅工作日执行（自动识别法定节假日、调休工作日）
+pycronguard task add -n daily-report \
+    -s scripts/report.py -t daily -S "09:00" \
+    --holiday-mode workday_only
+
+# 仅法定节假日执行
+pycronguard task add -n holiday-maintenance \
+    -s scripts/maintenance.py -t daily -S "02:00" \
+    --holiday-mode holiday_only
+
+# 每天执行，但法定节假日跳过
+pycronguard task add -n data-sync \
+    -s scripts/sync.py -t daily -S "12:00" \
+    --holiday-mode skip_holiday
+```
+
+### 数据更新
+
+节假日数据来自 `chinesecalendar` 库，基于国务院每年发布的节假日安排。建议每年初更新依赖以获取最新数据：
+
+```bash
+pip install -U chinesecalendar
+```
 
 ## 配置文件说明
 
@@ -241,7 +308,7 @@ generator.install_service()  # 自动检测平台并生成配置
 ```
 PyCronGuard
 ├── config/         配置管理 (YAML 加载、Schema 校验、热加载)
-├── core/           核心调度 (APScheduler 集成、任务执行器、优先级队列)
+├── core/           核心调度 (APScheduler 集成、任务执行器、优先级队列、节假日识别)
 ├── storage/        数据持久化 (SQLAlchemy ORM、SQLite)
 ├── scripts/        脚本管理 (注册、版本控制、语法校验)
 ├── monitor/        运行监控 (执行追踪、指标采集、告警管理)
