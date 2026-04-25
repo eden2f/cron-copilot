@@ -5,9 +5,9 @@ import threading
 import pytest
 from unittest.mock import MagicMock, patch
 
-from pycronguard.core.executor import TaskExecutor
-from pycronguard.core.task import TaskConfig
-from pycronguard.storage.models import TaskExecution, TaskRecord
+from croncopilot.core.executor import TaskExecutor
+from croncopilot.core.task import TaskConfig
+from croncopilot.storage.models import TaskExecution, TaskRecord
 
 
 class TestTaskExecutor:

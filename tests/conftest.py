@@ -13,7 +13,7 @@ def tmp_dir():
 @pytest.fixture
 def tmp_db(tmp_dir):
     """临时数据库"""
-    from pycronguard.storage.database import DatabaseManager
+    from croncopilot.storage.database import DatabaseManager
     db_path = os.path.join(tmp_dir, "test.db")
     return DatabaseManager(db_path)
 
@@ -21,14 +21,14 @@ def tmp_db(tmp_dir):
 @pytest.fixture
 def default_config():
     """默认配置"""
-    from pycronguard.config.schema import default_config
+    from croncopilot.config.schema import default_config
     return default_config()
 
 
 @pytest.fixture
 def sample_task_config():
     """示例任务配置"""
-    from pycronguard.core.task import TaskConfig
+    from croncopilot.core.task import TaskConfig
     import uuid
     return TaskConfig(
         task_id=str(uuid.uuid4()),

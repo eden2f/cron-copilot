@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
-"""PyCronGuard 示例任务脚本。
+"""CronCopilot 示例任务脚本。
 
-本脚本演示如何编写一个与 PyCronGuard 兼容的定时任务脚本。
+本脚本演示如何编写一个与 CronCopilot 兼容的定时任务脚本。
 
 兼容性要求:
     - 脚本通过 ``python script.py`` 方式调用。
     - 退出码 0 表示成功，非 0 表示失败。
-    - 标准输出 (stdout) 会被 PyCronGuard 捕获并记录。
-    - 标准错误 (stderr) 会被 PyCronGuard 捕获并在失败时用于告警。
+    - 标准输出 (stdout) 会被 CronCopilot 捕获并记录。
+    - 标准错误 (stderr) 会被 CronCopilot 捕获并在失败时用于告警。
 
 使用方法:
     # 注册脚本
-    pycronguard script add --path scripts/example_task.py --name example
+    croncopilot script add --path scripts/example_task.py --name example
 
     # 创建定时任务（每 5 分钟执行一次）
-    pycronguard task add --name example-task \\
+    croncopilot task add --name example-task \\
         --script scripts/example_task.py \\
         --schedule-type interval --schedule 5m
 
     # 手动执行一次
-    pycronguard task run example-task
+    croncopilot task run example-task
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ def main() -> int:
         return 0  # 成功
 
     except Exception as exc:
-        # 错误信息写入 stderr，PyCronGuard 会捕获并用于告警
+        # 错误信息写入 stderr，CronCopilot 会捕获并用于告警
         elapsed = time.monotonic() - start_time
         print(f"[{datetime.now().isoformat()}] 任务执行失败 (耗时: {elapsed:.2f}s)", file=sys.stderr)
         print(f"  错误: {exc}", file=sys.stderr)

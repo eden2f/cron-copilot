@@ -6,15 +6,15 @@ import pytest
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch, PropertyMock
 
-from pycronguard.config.schema import RecoveryConfig
-from pycronguard.core.executor import TaskExecutor, RunningTaskInfo
-from pycronguard.core.task import TaskConfig
-from pycronguard.monitor.tracker import ExecutionTracker
-from pycronguard.monitor.metrics import MetricsCollector
-from pycronguard.recovery.retry import RetryManager
-from pycronguard.recovery.health import HealthChecker
-from pycronguard.recovery.deadlock import DeadlockDetector
-from pycronguard.storage.models import TaskRecord
+from croncopilot.config.schema import RecoveryConfig
+from croncopilot.core.executor import TaskExecutor, RunningTaskInfo
+from croncopilot.core.task import TaskConfig
+from croncopilot.monitor.tracker import ExecutionTracker
+from croncopilot.monitor.metrics import MetricsCollector
+from croncopilot.recovery.retry import RetryManager
+from croncopilot.recovery.health import HealthChecker
+from croncopilot.recovery.deadlock import DeadlockDetector
+from croncopilot.storage.models import TaskRecord
 
 
 class TestRetryManager:

@@ -1,0 +1,16 @@
+[Unit]
+Description=CronCopilot - Python Task Scheduler
+After=network.target
+
+[Service]
+Type=simple
+User=%USER%
+ExecStart=%PYTHON% -m croncopilot start --foreground
+WorkingDirectory=%HOME%
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

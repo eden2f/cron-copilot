@@ -1,5 +1,5 @@
 # =============================================================================
-# PyCronGuard 默认配置
+# CronCopilot 默认配置
 # =============================================================================
 
 # 调度器配置
@@ -10,11 +10,11 @@ scheduler:
 
 # 数据库存储配置
 storage:
-  db_path: "~/.pycronguard/data.db"
+  db_path: "~/.croncopilot/data.db"
 
 # 日志配置
 log:
-  log_dir: "~/.pycronguard/logs"
+  log_dir: "~/.croncopilot/logs"
   level: "INFO"           # DEBUG / INFO / WARNING / ERROR / CRITICAL
   max_days: 30            # 日志保留天数
   json_format: true       # 是否使用 JSON 格式输出
@@ -48,9 +48,9 @@ recovery:
 
 # 脚本管理配置
 script:
-  script_dir: "~/.pycronguard/scripts"
-  version_dir: "~/.pycronguard/script_versions"
+  script_dir: "~/.croncopilot/scripts"
+  version_dir: "~/.croncopilot/script_versions"
   max_versions: 10        # 每个脚本最大保留版本数
 
 # PID 文件路径
-pid_file: "~/.pycronguard/pycronguard.pid"
+pid_file: "~/.croncopilot/croncopilot.pid"

@@ -6,17 +6,17 @@ import pytest
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch, PropertyMock
 
-from pycronguard.config.schema import AlertConfig, AlertEmailConfig
-from pycronguard.core.task import TaskConfig
-from pycronguard.monitor.tracker import ExecutionTracker
-from pycronguard.monitor.metrics import MetricsCollector
-from pycronguard.monitor.alert import (
+from croncopilot.config.schema import AlertConfig, AlertEmailConfig
+from croncopilot.core.task import TaskConfig
+from croncopilot.monitor.tracker import ExecutionTracker
+from croncopilot.monitor.metrics import MetricsCollector
+from croncopilot.monitor.alert import (
     AlertManager,
     EmailNotifier,
     ImmediateFailureStrategy,
     ConsecutiveFailureStrategy,
 )
-from pycronguard.storage.models import TaskExecution, TaskRecord
+from croncopilot.storage.models import TaskExecution, TaskRecord
 
 
 class TestExecutionTracker:
@@ -102,8 +102,8 @@ class TestExecutionTracker:
 class TestMetricsCollector:
     """测试 MetricsCollector."""
 
-    @patch("pycronguard.monitor.metrics._HAS_PSUTIL", True)
-    @patch("pycronguard.monitor.metrics.psutil")
+    @patch("croncopilot.monitor.metrics._HAS_PSUTIL", True)
+    @patch("croncopilot.monitor.metrics.psutil")
     def test_metrics_system(self, mock_psutil, tmp_db):
         """系统指标采集（CPU/内存/磁盘）."""
         mock_psutil.cpu_percent.return_value = 45.0
@@ -152,7 +152,7 @@ class TestMetricsCollector:
 class TestEmailNotifier:
     """测试 EmailNotifier."""
 
-    @patch("pycronguard.monitor.alert.smtplib.SMTP")
+    @patch("croncopilot.monitor.alert.smtplib.SMTP")
     def test_email_notifier(self, mock_smtp_cls):
         """EmailNotifier（mock SMTP）."""
         mock_server = MagicMock()

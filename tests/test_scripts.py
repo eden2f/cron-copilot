@@ -3,9 +3,9 @@
 import os
 import pytest
 
-from pycronguard.config.schema import ScriptConfig
-from pycronguard.scripts.manager import ScriptManager
-from pycronguard.scripts.version import VersionManager, ScriptMetadata
+from croncopilot.config.schema import ScriptConfig
+from croncopilot.scripts.manager import ScriptManager
+from croncopilot.scripts.version import VersionManager, ScriptMetadata
 
 
 class TestScriptManager:

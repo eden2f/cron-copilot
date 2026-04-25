@@ -25,6 +25,6 @@ htmlcov/
 *.swp
 *.swo
 
-# PyCronGuard runtime data
-.pycronguard/
+# CronCopilot runtime data
+.croncopilot/
 .qoder/

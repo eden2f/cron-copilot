@@ -20,7 +20,7 @@ class TestHolidayChecker:
         mock_cc = MagicMock()
         with patch.dict("sys.modules", {"chinese_calendar": mock_cc}):
             # 重置全局缓存，确保每个测试独立
-            import pycronguard.core.holiday as hmod
+            import croncopilot.core.holiday as hmod
             hmod._holiday_lib = mock_cc
             self._mock_cc = mock_cc
             yield
@@ -28,7 +28,7 @@ class TestHolidayChecker:
             hmod._global_checker = None
 
     def _make_checker(self, enabled=True):
-        from pycronguard.core.holiday import HolidayChecker
+        from croncopilot.core.holiday import HolidayChecker
         return HolidayChecker(enabled=enabled)
 
     # --- mode = none ---
@@ -135,7 +135,7 @@ class TestHolidayCheckerBasic:
     def _patch_holiday_lib(self):
         mock_cc = MagicMock()
         with patch.dict("sys.modules", {"chinese_calendar": mock_cc}):
-            import pycronguard.core.holiday as hmod
+            import croncopilot.core.holiday as hmod
             hmod._holiday_lib = mock_cc
             self._mock_cc = mock_cc
             yield
@@ -144,7 +144,7 @@ class TestHolidayCheckerBasic:
 
     def test_is_workday(self):
         """测试 is_workday 代理到 chinese_calendar"""
-        from pycronguard.core.holiday import HolidayChecker
+        from croncopilot.core.holiday import HolidayChecker
         self._mock_cc.is_workday.return_value = True
         checker = HolidayChecker(enabled=True)
         date = datetime.date(2026, 4, 20)
@@ -153,7 +153,7 @@ class TestHolidayCheckerBasic:
 
     def test_is_holiday(self):
         """测试 is_holiday 代理到 chinese_calendar"""
-        from pycronguard.core.holiday import HolidayChecker
+        from croncopilot.core.holiday import HolidayChecker
         self._mock_cc.is_holiday.return_value = True
         checker = HolidayChecker(enabled=True)
         date = datetime.date(2026, 10, 1)
@@ -162,13 +162,13 @@ class TestHolidayCheckerBasic:
 
     def test_is_workday_disabled(self):
         """禁用时 is_workday 始终返回 True"""
-        from pycronguard.core.holiday import HolidayChecker
+        from croncopilot.core.holiday import HolidayChecker
         checker = HolidayChecker(enabled=False)
         assert checker.is_workday(datetime.date(2026, 10, 1)) is True
 
     def test_is_holiday_disabled(self):
         """禁用时 is_holiday 始终返回 False"""
-        from pycronguard.core.holiday import HolidayChecker
+        from croncopilot.core.holiday import HolidayChecker
         checker = HolidayChecker(enabled=False)
         assert checker.is_holiday(datetime.date(2026, 10, 1)) is False
 
@@ -183,13 +183,13 @@ class TestTaskConfigHolidayMode:
 
     def test_task_config_default_holiday_mode(self):
         """默认 holiday_mode 为 'none'"""
-        from pycronguard.core.task import TaskConfig
+        from croncopilot.core.task import TaskConfig
         tc = TaskConfig(name="test", script_path="/tmp/t.py")
         assert tc.holiday_mode == "none"
 
     def test_task_config_to_record_with_holiday_mode(self):
         """TaskConfig -> TaskRecord 正确映射 holiday_mode"""
-        from pycronguard.core.task import TaskConfig, task_config_to_record
+        from croncopilot.core.task import TaskConfig, task_config_to_record
         tc = TaskConfig(
             name="hm_test",
             script_path="/tmp/t.py",
@@ -200,7 +200,7 @@ class TestTaskConfigHolidayMode:
 
     def test_record_to_task_config_with_holiday_mode(self):
         """TaskRecord -> TaskConfig 正确还原 holiday_mode"""
-        from pycronguard.core.task import TaskConfig, task_config_to_record, record_to_task_config
+        from croncopilot.core.task import TaskConfig, task_config_to_record, record_to_task_config
         tc = TaskConfig(
             name="hm_roundtrip",
             script_path="/tmp/t.py",
@@ -212,8 +212,8 @@ class TestTaskConfigHolidayMode:
 
     def test_record_to_task_config_none_holiday_mode(self):
         """TaskRecord.holiday_mode 为 None 时默认为 'none'"""
-        from pycronguard.core.task import record_to_task_config
-        from pycronguard.storage.models import TaskRecord
+        from croncopilot.core.task import record_to_task_config
+        from croncopilot.storage.models import TaskRecord
         record = TaskRecord(
             id=str(uuid.uuid4()),
             name="null_hm",
@@ -235,7 +235,7 @@ class TestCLIHolidayMode:
     def test_task_add_help_shows_holiday_mode(self):
         """task add --help 中包含 --holiday-mode 选项"""
         from click.testing import CliRunner
-        from pycronguard.main import cli
+        from croncopilot.main import cli
 
         runner = CliRunner()
         result = runner.invoke(cli, ["task", "add", "--help"])
@@ -246,7 +246,7 @@ class TestCLIHolidayMode:
         """添加任务时指定 holiday_mode 被正确保存"""
         import os
         from click.testing import CliRunner
-        from pycronguard.main import cli
+        from croncopilot.main import cli
 
         # 准备脚本文件
         script_path = os.path.join(tmp_dir, "task_hm.py")
@@ -287,7 +287,7 @@ class TestCLIHolidayMode:
         assert "已添加" in result.output
 
         # 验证数据库中的 holiday_mode
-        from pycronguard.storage.database import DatabaseManager
+        from croncopilot.storage.database import DatabaseManager
         db = DatabaseManager(db_path)
         record = db.get_task_by_name("holiday_task")
         assert record is not None

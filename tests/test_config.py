@@ -4,7 +4,7 @@ import os
 import pytest
 import yaml
 
-from pycronguard.config.schema import (
+from croncopilot.config.schema import (
     AppConfig,
     SchedulerConfig,
     LogConfig,
@@ -15,7 +15,7 @@ from pycronguard.config.schema import (
     default_config,
     validate_config,
 )
-from pycronguard.config.loader import ConfigLoader
+from croncopilot.config.loader import ConfigLoader
 
 
 class TestDefaultConfig:
@@ -27,7 +27,7 @@ class TestDefaultConfig:
         assert default_config.scheduler.max_workers == 4
         assert default_config.scheduler.max_instances == 1
         assert default_config.scheduler.timezone == "Asia/Shanghai"
-        assert default_config.storage.db_path == "~/.pycronguard/data.db"
+        assert default_config.storage.db_path == "~/.croncopilot/data.db"
         assert default_config.log.level == "INFO"
         assert default_config.log.max_days == 30
         assert default_config.log.json_format is True
@@ -40,7 +40,7 @@ class TestDefaultConfig:
         assert default_config.alert.cooldown_seconds == 300
         assert default_config.alert.email.enabled is False
         assert default_config.script.max_versions == 10
-        assert default_config.pid_file == "~/.pycronguard/pycronguard.pid"
+        assert default_config.pid_file == "~/.croncopilot/croncopilot.pid"
 
 
 class TestValidateConfig:

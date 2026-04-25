@@ -3,13 +3,13 @@
 import uuid
 import pytest
 
-from pycronguard.core.task import (
+from croncopilot.core.task import (
     TaskConfig,
     parse_schedule,
     task_config_to_record,
     record_to_task_config,
 )
-from pycronguard.storage.models import TaskRecord
+from croncopilot.storage.models import TaskRecord
 
 
 class TestParseSchedule:
@@ -117,8 +117,8 @@ class TestSchedulerManager:
     """测试 SchedulerManager."""
 
     def _make_scheduler(self, tmp_db, default_config):
-        from pycronguard.core.executor import TaskExecutor
-        from pycronguard.core.scheduler import SchedulerManager
+        from croncopilot.core.executor import TaskExecutor
+        from croncopilot.core.scheduler import SchedulerManager
         executor = TaskExecutor(max_workers=2, db_manager=tmp_db)
         sm = SchedulerManager(config=default_config, db_manager=tmp_db, executor=executor)
         return sm, executor
