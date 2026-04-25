@@ -1,5 +1,9 @@
 # PyCronGuard 详细参考
 
+> **项目仓库:** [Gitee](https://gitee.com/eden2f/py-cron-guard) | [GitHub](https://github.com/eden2f/py-cron-guard)    **协议:** MIT    **Python:** ≥3.10
+>
+> 安装：`git clone https://gitee.com/eden2f/py-cron-guard.git && cd PyCronGuard && pip install -e . && pycronguard init`
+
 ---
 
 ## A. 全局选项
