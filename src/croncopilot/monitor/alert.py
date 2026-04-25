@@ -9,7 +9,7 @@ and delivery logging.
 from __future__ import annotations
 
 import smtplib
-from datetime import datetime, timedelta
+from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Dict, List, Optional, Tuple
