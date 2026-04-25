@@ -239,6 +239,17 @@ pycronguard task add -n data-sync \
 pip install -U chinesecalendar
 ```
 
+**自动更新（推荐）：** 项目内置了更新脚本，可注册为年度定时任务：
+
+```bash
+pycronguard script add --path scripts/update_chinesecalendar.py --name update-calendar
+pycronguard task add --name update-chinesecalendar \
+    --script scripts/update_chinesecalendar.py \
+    --schedule-type cron --schedule "0 3 5 1 *"
+```
+
+该任务将在每年 1 月 5 日凌晨 3 点自动执行，届时国务院通常已发布当年节假日安排。
+
 ## 配置文件说明
 
 配置文件位于 `~/.pycronguard/config.yaml`，支持以下配置项：
