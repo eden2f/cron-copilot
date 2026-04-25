@@ -119,6 +119,28 @@ croncopilot status
 croncopilot stop
 ```
 
+## 升级
+
+### 开发模式
+
+本项目采用 `pip install -e .` 开发模式安装，源码修改后自动生效，无需重新安装。
+升级代码后，重启服务即可：
+
+```bash
+croncopilot stop && croncopilot start --daemon
+```
+
+### 生产部署
+
+若通过 `pip install .` 部署，需重新安装后重启：
+
+```bash
+pip install --upgrade .
+croncopilot stop && croncopilot start --daemon
+```
+
+> **提示：** 如果仅修改了配置文件，可通过[配置热重载](#配置热重载)方式生效，无需重启服务。
+
 ## CLI 命令参考
 
 ### 全局选项
@@ -133,7 +155,7 @@ croncopilot stop
 | 命令 | 说明 |
 |------|------|
 | `croncopilot init` | 初始化配置和目录结构 |
-| `croncopilot start [-d\|--daemon]` | 启动调度器 |
+| `croncopilot start [-d/--daemon]` | 启动调度器 |
 | `croncopilot stop` | 停止守护进程 |
 | `croncopilot status` | 查看运行状态 |
 | `croncopilot health` | 执行系统健康检查 |
@@ -159,6 +181,7 @@ croncopilot stop
 | `-p, --priority` | 否 | `5` | 优先级 1-10 |
 | `--timeout` | 否 | `3600` | 超时时间(秒) |
 | `--max-retries` | 否 | `3` | 最大重试次数 |
+| `--max-instances` | 否 | `1` | 最大并发实例数 |
 | `--category` | 否 | `""` | 分类 |
 | `--description` | 否 | `""` | 描述 |
 | `--depends-on` | 否 | — | 依赖的任务名称（可多次指定） |
@@ -168,7 +191,7 @@ croncopilot stop
 
 | 命令 | 说明 |
 |------|------|
-| `croncopilot script add` | 注册脚本 |
+| `croncopilot script add` | 注册脚本（支持 `--venv` 指定独立虚拟环境路径） |
 | `croncopilot script remove <name>` | 注销脚本 |
 | `croncopilot script list` | 列出所有脚本 |
 | `croncopilot script info <name>` | 查看脚本详情和版本历史 |
@@ -179,8 +202,8 @@ croncopilot stop
 # 查看最近 30 天的执行记录和统计
 croncopilot task history <name>
 
-# 查看最近 7 天，显示 50 条记录
-croncopilot task history <name> --days 7 --limit 50
+# 查看最近 7 天，显示 50 条记录（支持短选项）
+croncopilot task history <name> -d 7 -l 50
 
 # 仅查看统计摘要
 croncopilot task history <name> --stats-only
@@ -307,6 +330,20 @@ script:
 # PID 文件
 pid_file: "~/.croncopilot/croncopilot.pid"
 ```
+
+## 配置热重载
+
+修改 `config.yaml` 后，无需重启服务，发送 `SIGHUP` 信号即可热重载配置：
+
+```bash
+kill -HUP $(cat ~/.croncopilot/croncopilot.pid)
+```
+
+**热重载作用：**
+- 重新加载所有配置项（调度器参数、告警设置、日志级别等）
+- 刷新已有任务的调度参数（如 misfire_grace_time、coalesce、max_instances）
+
+**注意：** 任务定义的新增/删除需通过 `croncopilot task add/remove` CLI 命令完成，热重载仅作用于配置项。
 
 ## 系统服务部署
 

@@ -303,21 +303,20 @@ class TaskExecutor:
         result: Any = None
 
         try:
-            # Record execution start in DB.
-            if self._record_to_db and self._db is not None:
+            # on_task_start hook (tracker handles DB recording when bound)
+            if self.on_task_start is not None:
+                try:
+                    self.on_task_start(task_id, task_config)
+                except Exception:
+                    logger.exception("on_task_start hook failed for task %s", task_id)
+            elif self._record_to_db and self._db is not None:
+                # Fallback: record execution start in DB when no tracker is bound.
                 execution = TaskExecution(
                     task_id=task_id,
                     status="running",
                     start_time=start_time,
                 )
                 self._db.add_execution(execution)
-
-            # on_task_start hook
-            if self.on_task_start is not None:
-                try:
-                    self.on_task_start(task_id, task_config)
-                except Exception:
-                    logger.exception("on_task_start hook failed for task %s", task_id)
 
             # Determine Python interpreter.
             python_exe = _resolve_python(task_config.venv_path)
@@ -375,19 +374,16 @@ class TaskExecutor:
                     duration,
                 )
 
-            # Update DB execution record.
-            if self._record_to_db and self._db is not None and execution is not None:
-                self._db.add_execution(
-                    TaskExecution(
-                        task_id=task_id,
-                        status="success" if success else "failed",
-                        start_time=start_time,
-                        end_time=end_time,
-                        duration=duration,
-                        return_code=return_code,
-                        output=(stdout or "")[:10000],
-                        error=(stderr or "")[:10000],
-                    )
+            # Update DB execution record (only when no tracker is bound).
+            if self.on_task_complete is None and self._record_to_db and self._db is not None and execution is not None:
+                self._db.update_execution(
+                    execution.id,
+                    status="success" if success else "failed",
+                    end_time=end_time,
+                    duration=duration,
+                    return_code=return_code,
+                    output=(stdout or "")[:10000],
+                    error=(stderr or "")[:10000],
                 )
 
         except Exception:
@@ -395,18 +391,27 @@ class TaskExecutor:
             success = False
             result = None
 
-            if self._record_to_db and self._db is not None:
+            if self.on_task_complete is None and self._record_to_db and self._db is not None:
                 try:
-                    self._db.add_execution(
-                        TaskExecution(
-                            task_id=task_id,
+                    if execution is not None:
+                        self._db.update_execution(
+                            execution.id,
                             status="failed",
-                            start_time=start_time,
                             end_time=datetime.now(),
                             duration=(datetime.now() - start_time).total_seconds(),
                             error="Unexpected executor error",
                         )
-                    )
+                    else:
+                        self._db.add_execution(
+                            TaskExecution(
+                                task_id=task_id,
+                                status="failed",
+                                start_time=start_time,
+                                end_time=datetime.now(),
+                                duration=(datetime.now() - start_time).total_seconds(),
+                                error="Unexpected executor error",
+                            )
+                        )
                 except Exception:
                     logger.exception("Failed to record error execution for task %s", task_id)
 

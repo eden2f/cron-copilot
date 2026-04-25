@@ -49,6 +49,11 @@ class SchedulerManager:
         self._executor = executor
         self._scheduler = BackgroundScheduler(
             timezone=config.scheduler.timezone,
+            job_defaults={
+                'misfire_grace_time': None,  # 无论错过多久都补偿执行一次（配合 coalesce）
+                'coalesce': True,            # 多次错过的执行合并为一次
+                'max_instances': 1,          # 限制同一任务同时只有一个实例
+            },
         )
         self._tasks: Dict[str, TaskConfig] = {}
         self._holiday_checker = get_holiday_checker()

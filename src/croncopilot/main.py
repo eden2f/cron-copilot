@@ -444,7 +444,8 @@ def task() -> None:
 @click.option("--schedule", "-S", required=True, help="调度表达式")
 @click.option("--priority", "-p", default=5, help="优先级 (1-10)")
 @click.option("--timeout", default=3600, help="超时时间(秒)")
-@click.option("--max-retries", default=3, help="最大重试次数")
+@click.option('--max-retries', default=3, help='最大重试次数')
+@click.option('--max-instances', default=1, type=int, help='最大并发实例数，默认 1')
 @click.option("--category", default="", help="分类")
 @click.option("--description", default="", help="描述")
 @click.option("--depends-on", multiple=True, help="依赖的任务名称")
@@ -464,6 +465,7 @@ def task_add(
     priority: int,
     timeout: int,
     max_retries: int,
+    max_instances: int,
     category: str,
     description: str,
     depends_on: Tuple[str, ...],
@@ -517,6 +519,7 @@ def task_add(
         priority=priority,
         timeout=timeout,
         max_retries=max_retries,
+        max_instances=max_instances,
         category=category,
         description=description,
         dependencies=dep_ids,

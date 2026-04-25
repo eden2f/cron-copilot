@@ -92,22 +92,46 @@ class ExecutionTracker:
                 cpu_usage = result.get("cpu_usage")
                 memory_usage = result.get("memory_usage")
 
-            execution = TaskExecution(
-                task_id=task_id,
-                status=status,
-                start_time=self._active_executions.get(task_id, TaskExecution(task_id=task_id)).start_time,
-                end_time=end_time,
-                duration=duration,
-                return_code=return_code,
-                output=(output or "")[:10000] if output else None,
-                error=(error or "")[:10000] if error else None,
-                cpu_usage=cpu_usage,
-                memory_usage=memory_usage,
-            )
-            self._db.add_execution(execution)
+            active_execution = self._active_executions.pop(task_id, None)
 
-            # Remove from active set.
-            self._active_executions.pop(task_id, None)
+            if active_execution is not None and active_execution.id is not None:
+                # Update the existing running record in-place.
+                self._db.update_execution(
+                    active_execution.id,
+                    status=status,
+                    end_time=end_time,
+                    duration=duration,
+                    return_code=return_code,
+                    output=(output or "")[:10000] if output else None,
+                    error=(error or "")[:10000] if error else None,
+                    cpu_usage=cpu_usage,
+                    memory_usage=memory_usage,
+                )
+                # Reflect updates on the local object for callbacks.
+                active_execution.status = status
+                active_execution.end_time = end_time
+                active_execution.duration = duration
+                active_execution.return_code = return_code
+                active_execution.output = (output or "")[:10000] if output else None
+                active_execution.error = (error or "")[:10000] if error else None
+                active_execution.cpu_usage = cpu_usage
+                active_execution.memory_usage = memory_usage
+                execution = active_execution
+            else:
+                # Fallback: no active record found, insert a new complete record.
+                execution = TaskExecution(
+                    task_id=task_id,
+                    status=status,
+                    start_time=active_execution.start_time if active_execution else end_time,
+                    end_time=end_time,
+                    duration=duration,
+                    return_code=return_code,
+                    output=(output or "")[:10000] if output else None,
+                    error=(error or "")[:10000] if error else None,
+                    cpu_usage=cpu_usage,
+                    memory_usage=memory_usage,
+                )
+                self._db.add_execution(execution)
 
             logger.info(
                 "Tracker: task %s completed with status=%s (duration=%.2fs)",

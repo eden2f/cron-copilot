@@ -160,6 +160,16 @@ class DatabaseManager:
         with self.get_session() as session:
             session.add(execution)
 
+    def update_execution(self, execution_id: int, **kwargs: object) -> None:
+        """Update fields of an existing execution record.
+
+        Parameters:
+            execution_id: Primary key of the execution record.
+            **kwargs: Field names and their new values.
+        """
+        with self.get_session() as session:
+            session.query(TaskExecution).filter_by(id=execution_id).update(kwargs)
+
     def get_latest_execution(self, task_id: str) -> TaskExecution | None:
         """Get the most recent execution for a task.
 
