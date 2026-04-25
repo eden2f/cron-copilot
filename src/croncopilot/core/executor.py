@@ -83,7 +83,7 @@ class TaskExecutor:
     # Public API
     # ------------------------------------------------------------------
 
-    def submit(self, task_config: TaskConfig) -> bool:
+    def submit(self, task_config: TaskConfig, *, skip_holiday_check: bool = False) -> bool:
         """Submit a task to the priority queue for execution.
 
         The task is validated against its concurrency limit
@@ -92,6 +92,8 @@ class TaskExecutor:
 
         Parameters:
             task_config: Configuration of the task to submit.
+            skip_holiday_check: If ``True``, bypass the holiday/workday
+                validation.  Useful for manual (ad-hoc) runs.
 
         Returns:
             ``True`` if the task was enqueued successfully, ``False``
@@ -102,19 +104,20 @@ class TaskExecutor:
             logger.warning("Executor is shut down; rejecting task %s", task_config.task_id)
             return False
 
-        # 节假日二次校验
-        from datetime import datetime as dt
+        # 节假日二次校验（手动执行时跳过）
+        if not skip_holiday_check:
+            from datetime import datetime as dt
 
-        holiday_mode = getattr(task_config, 'holiday_mode', 'none') or 'none'
-        if holiday_mode != 'none':
-            checker = get_holiday_checker()
-            today = dt.now().date()
-            if not checker.should_execute(today, holiday_mode):
-                logger.info(
-                    "Task %s rejected by holiday check: mode=%s, date=%s",
-                    task_config.task_id, holiday_mode, today,
-                )
-                return False
+            holiday_mode = getattr(task_config, 'holiday_mode', 'none') or 'none'
+            if holiday_mode != 'none':
+                checker = get_holiday_checker()
+                today = dt.now().date()
+                if not checker.should_execute(today, holiday_mode):
+                    logger.info(
+                        "Task %s rejected by holiday check: mode=%s, date=%s",
+                        task_config.task_id, holiday_mode, today,
+                    )
+                    return False
 
         # Concurrency limit per task
         if not self._check_max_instances(task_config):

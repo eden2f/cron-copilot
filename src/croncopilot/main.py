@@ -645,7 +645,7 @@ def task_run(ctx: click.Context, name: str) -> None:
     executor = TaskExecutor(max_workers=1, db_manager=db_manager)
 
     click.echo(f"正在执行任务 '{name}' ...")
-    submitted = executor.submit(task_config)
+    submitted = executor.submit(task_config, skip_holiday_check=True)
     if not submitted:
         click.echo("✗ 任务提交失败（可能依赖未满足或并发限制）", err=True)
         executor.shutdown(wait=False)
