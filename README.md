@@ -419,6 +419,26 @@ if __name__ == "__main__":
 - stdout 会被记录到执行日志
 - stderr 会在失败时用于告警消息
 
+## AI 辅助使用
+
+PyCronGuard 内置了面向 AI 编程助手的 Skill（`skills/pycronguard-ops/`），支持 [Qoder](https://qoder.ai) 等兼容 Skill 协议的 AI 产品自动加载运维指南，通过自然语言对话即可完成日常操作。其他 AI 产品的用户也可以参考 [`skills/pycronguard-ops/SKILL.md`](skills/pycronguard-ops/SKILL.md) 中的运维指南来使用 PyCronGuard。
+
+### AI 能帮你做什么
+
+- 创建和管理定时任务（含调度表达式、优先级、依赖关系等配置）
+- 编写符合规范的任务脚本
+- 配置节假日模式（工作日/节假日识别）
+- 部署为 systemd / launchd 系统服务
+- 查看执行历史、排查任务故障
+
+### 使用方式
+
+在支持 Skill 的 AI 编程助手中打开本项目，AI 会自动加载 PyCronGuard 运维指南。直接用自然语言描述你的需求即可，例如：
+
+- *"帮我创建一个每天早上 9 点执行的数据同步任务，仅工作日运行"*
+- *"查看 daily-report 任务最近的执行情况"*
+- *"把 PyCronGuard 部署为 macOS 开机自启服务"*
+
 ## 贡献指南
 
 欢迎对 PyCronGuard 项目提出改进建议和代码贡献！
