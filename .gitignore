@@ -27,3 +27,4 @@ htmlcov/
 
 # PyCronGuard runtime data
 .pycronguard/
+.qoder/
