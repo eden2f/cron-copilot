@@ -45,7 +45,7 @@ class TestRetryManager:
         # Mock executor.submit to track calls
         submit_calls = []
         original_submit = executor.submit
-        executor.submit = lambda tc: submit_calls.append(tc) or True
+        executor.submit = lambda tc, **kwargs: submit_calls.append(tc) or True
 
         rm.on_task_failed(task_config.task_id, task_config, "error msg")
 
@@ -67,7 +67,7 @@ class TestRetryManager:
         )
 
         submit_calls = []
-        executor.submit = lambda tc: submit_calls.append(tc) or True
+        executor.submit = lambda tc, **kwargs: submit_calls.append(tc) or True
 
         # Exhaust retries
         rm.on_task_failed(task_config.task_id, task_config, "error 1")
@@ -170,6 +170,33 @@ class TestRetryManager:
 
         rm.reset_retry_count(task_config.task_id)
         assert rm.get_retry_count(task_config.task_id) == 0
+
+        executor.shutdown(wait=False)
+
+    def test_schedule_retry_trigger_type(self, tmp_db):
+        """_schedule_retry() 调用 executor.submit() 时传递 trigger_type='retry'."""
+        rm, executor = self._make_retry_manager(tmp_db, max_retries=3, retry_delay=0.05)
+
+        task_config = TaskConfig(
+            name="retry_trigger_test",
+            script_path="/tmp/t.py",
+            max_retries=3,
+        )
+
+        # Mock executor.submit to capture call args
+        submit_kwargs = []
+        original_submit = executor.submit
+        def mock_submit(tc, **kwargs):
+            submit_kwargs.append(kwargs)
+            return True
+        executor.submit = mock_submit
+
+        rm.on_task_failed(task_config.task_id, task_config, "error msg")
+
+        # Wait for the timer to fire
+        time.sleep(0.3)
+        assert len(submit_kwargs) == 1
+        assert submit_kwargs[0].get("trigger_type") == "retry"
 
         executor.shutdown(wait=False)
 

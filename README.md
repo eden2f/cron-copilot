@@ -179,8 +179,8 @@ croncopilot stop && croncopilot start --daemon
 | `-t, --schedule-type` | 是 | — | 调度类型 (cron/daily/weekly/monthly/interval) |
 | `-S, --schedule` | 是 | — | 调度表达式 |
 | `-p, --priority` | 否 | `5` | 优先级 1-10 |
-| `--timeout` | 否 | `3600` | 超时时间(秒) |
-| `--max-retries` | 否 | `3` | 最大重试次数 |
+| `--timeout` | 否 | `3600` | 超时时间(秒)，必须 ≥ 1 |
+| `--max-retries` | 否 | `3` | 最大重试次数，必须 ≥ 0 |
 | `--max-instances` | 否 | `1` | 最大并发实例数 |
 | `--category` | 否 | `""` | 分类 |
 | `--description` | 否 | `""` | 描述 |

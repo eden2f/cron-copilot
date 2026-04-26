@@ -7,6 +7,7 @@ queue, and subprocess-based script execution with timeout / cancel support.
 from __future__ import annotations
 
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -46,6 +47,7 @@ class RunningTaskInfo:
     process: Optional[subprocess.Popen] = field(default=None, repr=False)  # type: ignore[type-arg]
     start_time: datetime = field(default_factory=datetime.now)
     thread_future: Optional[Future] = field(default=None, repr=False)  # type: ignore[type-arg]
+    trigger_type: str = "scheduled"
 
 
 class TaskExecutor:
@@ -67,14 +69,14 @@ class TaskExecutor:
         self._thread_pool = ThreadPoolExecutor(max_workers=max_workers)
         self._semaphore = threading.Semaphore(max_workers)
         self._running_tasks: Dict[str, RunningTaskInfo] = {}
-        self._priority_queue: List[Tuple[int, float, TaskConfig]] = []
+        self._priority_queue: List[Tuple[int, float, TaskConfig, str]] = []
         self._lock = threading.Lock()
         self._db = db_manager
         self._record_to_db = record_to_db
         self._shutdown = False
 
         # Callback hooks – may be set by external modules (e.g. monitoring).
-        self.on_task_start: Optional[Callable[[str, TaskConfig], None]] = None
+        self.on_task_start: Optional[Callable[..., None]] = None
         self.on_task_complete: Optional[Callable[[str, bool, Any], None]] = None
 
         logger.info("TaskExecutor initialised with max_workers=%d", max_workers)
@@ -83,7 +85,13 @@ class TaskExecutor:
     # Public API
     # ------------------------------------------------------------------
 
-    def submit(self, task_config: TaskConfig, *, skip_holiday_check: bool = False) -> bool:
+    def submit(
+        self,
+        task_config: TaskConfig,
+        *,
+        skip_holiday_check: bool = False,
+        trigger_type: str = "scheduled",
+    ) -> bool:
         """Submit a task to the priority queue for execution.
 
         The task is validated against its concurrency limit
@@ -141,7 +149,7 @@ class TaskExecutor:
         with self._lock:
             heapq.heappush(
                 self._priority_queue,
-                (task_config.priority, time.monotonic(), task_config),
+                (task_config.priority, time.monotonic(), task_config, trigger_type),
             )
         logger.info(
             "Task %s (%s) enqueued with priority %d",
@@ -269,9 +277,9 @@ class TaskExecutor:
                 if not self._priority_queue:
                     self._semaphore.release()
                     break
-                _priority, _ts, task_config = heapq.heappop(self._priority_queue)
+                _priority, _ts, task_config, trigger_type = heapq.heappop(self._priority_queue)
 
-            future = self._thread_pool.submit(self._execute_task, task_config)
+            future = self._thread_pool.submit(self._execute_task, task_config, trigger_type)
 
             with self._lock:
                 self._running_tasks[task_config.task_id] = RunningTaskInfo(
@@ -280,9 +288,10 @@ class TaskExecutor:
                     process=None,
                     start_time=datetime.now(),
                     thread_future=future,
+                    trigger_type=trigger_type,
                 )
 
-    def _execute_task(self, task_config: TaskConfig) -> None:
+    def _execute_task(self, task_config: TaskConfig, trigger_type: str = "scheduled") -> None:
         """Execute a task script in a subprocess.
 
         This method runs in a worker thread.  It:
@@ -309,7 +318,7 @@ class TaskExecutor:
             # on_task_start hook (tracker handles DB recording when bound)
             if self.on_task_start is not None:
                 try:
-                    self.on_task_start(task_id, task_config)
+                    self.on_task_start(task_id, task_config, trigger_type=trigger_type)
                 except Exception:
                     logger.exception("on_task_start hook failed for task %s", task_id)
             elif self._record_to_db and self._db is not None:
@@ -318,6 +327,7 @@ class TaskExecutor:
                     task_id=task_id,
                     status="running",
                     start_time=start_time,
+                    trigger_type=trigger_type,
                 )
                 self._db.add_execution(execution)
 
@@ -332,11 +342,16 @@ class TaskExecutor:
                 task_config.script_path,
             )
 
+            # Build an isolated environment for the subprocess
+            child_env = _build_isolated_env(task_config.venv_path)
+
             proc = subprocess.Popen(
                 [python_exe, task_config.script_path],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                env=child_env,
+                start_new_session=(sys.platform != "win32"),
             )
 
             # Store process handle so ``cancel_task`` can reach it.
@@ -357,6 +372,10 @@ class TaskExecutor:
             success = return_code == 0
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
+
+            # Sanitize output to prevent sensitive information leakage
+            stdout = _sanitize_output(stdout)
+            stderr = _sanitize_output(stderr)
 
             result = {
                 "return_code": return_code,
@@ -438,6 +457,76 @@ class TaskExecutor:
 # ---------------------------------------------------------------------------
 # Utility helpers
 # ---------------------------------------------------------------------------
+
+
+# Regex pattern for detecting sensitive key=value pairs in output
+_SENSITIVE_PATTERN = re.compile(
+    r'(?i)'
+    r'(?:password|passwd|api_key|apikey|api[-_]?secret|'
+    r'token|secret|secret_key|access_key|private_key)'
+    r'\s*[=:]\s*'
+    r'\S+',
+)
+
+
+def _sanitize_output(text: Optional[str]) -> Optional[str]:
+    """Redact sensitive key=value patterns from subprocess output.
+
+    Patterns such as ``password=xxx``, ``api_key=xxx``, ``token=xxx``,
+    and ``secret=xxx`` are replaced with ``***REDACTED***``.
+
+    Parameters:
+        text: Raw output text (may be ``None``).
+
+    Returns:
+        Sanitized text, or ``None`` if *text* was ``None``.
+    """
+    if not text:
+        return text
+    return _SENSITIVE_PATTERN.sub("***REDACTED***", text)
+
+
+def _build_isolated_env(venv_path: str = "") -> Dict[str, str]:
+    """Create an isolated environment variable dict for child processes.
+
+    Only essential variables are forwarded (``PATH``, ``HOME``, ``LANG``,
+    ``USER``, ``LOGNAME``, ``SHELL``, ``TERM``, ``TMPDIR``, ``TZ``).  If
+    *venv_path* is provided, the virtual-environment ``bin`` (or
+    ``Scripts`` on Windows) directory is prepended to ``PATH`` and
+    ``VIRTUAL_ENV`` is set.
+
+    Parameters:
+        venv_path: Optional path to a virtual environment root.
+
+    Returns:
+        A new environment dict suitable for ``subprocess.Popen(env=...)``.
+    """
+    allowed_keys = (
+        "PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE",
+        "USER", "LOGNAME", "SHELL", "TERM", "TMPDIR", "TZ",
+    )
+    env: Dict[str, str] = {}
+    for key in allowed_keys:
+        val = os.environ.get(key)
+        if val is not None:
+            env[key] = val
+
+    # Ensure PATH is always present
+    if "PATH" not in env:
+        env["PATH"] = "/usr/local/bin:/usr/bin:/bin"
+
+    # Handle virtual environment paths
+    if venv_path:
+        venv_path = os.path.expanduser(venv_path)
+        if sys.platform == "win32":
+            venv_bin = os.path.join(venv_path, "Scripts")
+        else:
+            venv_bin = os.path.join(venv_path, "bin")
+        if os.path.isdir(venv_bin):
+            env["PATH"] = venv_bin + os.pathsep + env["PATH"]
+            env["VIRTUAL_ENV"] = venv_path
+
+    return env
 
 
 def _resolve_python(venv_path: str = "") -> str:

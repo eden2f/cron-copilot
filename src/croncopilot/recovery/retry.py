@@ -164,7 +164,7 @@ class RetryManager:
                 delay,
             )
             try:
-                submitted = self._executor.submit(task_config)
+                submitted = self._executor.submit(task_config, trigger_type="retry")
                 if not submitted:
                     logger.error(
                         "RetryManager: failed to resubmit task %s (%s)",

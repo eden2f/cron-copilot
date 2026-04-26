@@ -224,7 +224,14 @@ def init(ctx: click.Context) -> None:
         config = loader.load()
         DatabaseManager(config.storage.db_path)
         click.echo(f"✓ 初始化数据库: {config.storage.db_path}")
+    except FileNotFoundError as exc:
+        click.echo(f"✗ 配置文件不存在: {exc}", err=True)
+    except ValueError as exc:
+        click.echo(f"✗ 配置参数无效: {exc}", err=True)
+    except OSError as exc:
+        click.echo(f"✗ 数据库初始化IO错误: {exc}", err=True)
     except Exception as exc:
+        logger.exception("数据库初始化失败")
         click.echo(f"✗ 数据库初始化失败: {exc}", err=True)
 
     click.echo("\n初始化完成！使用 'croncopilot start' 启动调度器。")
@@ -247,7 +254,17 @@ def start(ctx: click.Context, daemon: bool, foreground: bool) -> None:
 
     try:
         components = _init_components(config_path)
+    except FileNotFoundError as exc:
+        click.echo(f"✗ 配置文件不存在: {exc}", err=True)
+        sys.exit(1)
+    except ValueError as exc:
+        click.echo(f"✗ 配置参数无效: {exc}", err=True)
+        sys.exit(1)
+    except OSError as exc:
+        click.echo(f"✗ 初始化IO错误: {exc}", err=True)
+        sys.exit(1)
     except Exception as exc:
+        logger.exception("初始化失败")
         click.echo(f"✗ 初始化失败: {exc}", err=True)
         sys.exit(1)
 
@@ -442,9 +459,9 @@ def task() -> None:
     required=True,
 )
 @click.option("--schedule", "-S", required=True, help="调度表达式")
-@click.option("--priority", "-p", default=5, help="优先级 (1-10)")
-@click.option("--timeout", default=3600, help="超时时间(秒)")
-@click.option('--max-retries', default=3, help='最大重试次数')
+@click.option("--priority", "-p", default=5, type=click.IntRange(1, 10), help="优先级 (1-10)")
+@click.option("--timeout", default=3600, type=click.IntRange(1), help="超时时间(秒)")
+@click.option('--max-retries', default=3, type=click.IntRange(0), help='最大重试次数')
 @click.option('--max-instances', default=1, type=int, help='最大并发实例数，默认 1')
 @click.option("--category", default="", help="分类")
 @click.option("--description", default="", help="描述")
@@ -645,7 +662,7 @@ def task_run(ctx: click.Context, name: str) -> None:
     executor = TaskExecutor(max_workers=1, db_manager=db_manager)
 
     click.echo(f"正在执行任务 '{name}' ...")
-    submitted = executor.submit(task_config, skip_holiday_check=True)
+    submitted = executor.submit(task_config, skip_holiday_check=True, trigger_type="manual")
     if not submitted:
         click.echo("✗ 任务提交失败（可能依赖未满足或并发限制）", err=True)
         executor.shutdown(wait=False)
@@ -752,7 +769,7 @@ def task_history(ctx: click.Context, name: str, days: int, limit: int, stats_onl
 
     click.echo(f"📋 最近 {limit} 条执行记录")
     click.echo("────────────────────────────")
-    click.echo(f"{'时间':<22}{'状态':<10}{'耗时':<10}{'返回码':<8}{'错误'}")
+    click.echo(f"{'时间':<22}{'状态':<10}{'触发':<10}{'耗时':<10}{'返回码':<8}{'错误'}")
 
     status_map = {
         "success": ("成功", "green"),
@@ -765,10 +782,11 @@ def task_history(ctx: click.Context, name: str, days: int, limit: int, stats_onl
         time_str = e.start_time.strftime("%Y-%m-%d %H:%M:%S") if e.start_time else "(未知)"
         label, color = status_map.get(e.status, (e.status, "white"))
         styled_status = click.style(f"{label:<8}", fg=color)
+        trigger_label = getattr(e, 'trigger_type', None) or "scheduled"
         duration_str = f"{e.duration:.1f}s" if e.duration is not None else "-"
         rc_str = str(e.return_code) if e.return_code is not None else "-"
         error_str = (e.error[:40] + "...") if e.error and len(e.error) > 40 else (e.error or "-")
-        click.echo(f"{time_str:<22}{styled_status}  {duration_str:<10}{rc_str:<8}{error_str}")
+        click.echo(f"{time_str:<22}{styled_status}  {trigger_label:<10}{duration_str:<10}{rc_str:<8}{error_str}")
 
 
 # ======================================================================

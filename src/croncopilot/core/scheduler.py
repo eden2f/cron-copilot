@@ -205,7 +205,7 @@ class SchedulerManager:
             return
 
         logger.info("Running task immediately: %s (%s)", task_id, task_config.name)
-        self._executor.submit(task_config)
+        self._executor.submit(task_config, skip_holiday_check=True, trigger_type="manual")
 
     def get_task(self, task_id: str) -> Optional[TaskConfig]:
         """Retrieve a task configuration by its ID.

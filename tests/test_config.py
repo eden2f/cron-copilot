@@ -16,6 +16,7 @@ from croncopilot.config.schema import (
     validate_config,
 )
 from croncopilot.config.loader import ConfigLoader
+from croncopilot.storage.models import TaskExecution, TaskRecord
 
 
 class TestDefaultConfig:
@@ -137,3 +138,87 @@ class TestConfigLoader:
         assert config.script.script_dir.startswith(home)
         assert config.pid_file.startswith(home)
         assert "~" not in config.storage.db_path
+
+
+class TestDatabaseTriggerType:
+    """测试数据库层 trigger_type 功能."""
+
+    def test_list_executions_by_trigger(self, tmp_db):
+        """list_executions_by_trigger() 正确按触发类型过滤."""
+        from croncopilot.core.task import TaskConfig
+        from datetime import datetime, timedelta
+
+        task_config = TaskConfig(name="trigger_filter", script_path="/tmp/t.py")
+        record = TaskRecord(
+            id=task_config.task_id, name=task_config.name, script_path="/tmp/t.py"
+        )
+        tmp_db.add_task(record)
+
+        now = datetime.now()
+        # Add executions with different trigger_types
+        for i, tt in enumerate(["scheduled", "manual", "retry", "scheduled", "manual"]):
+            exec_rec = TaskExecution(
+                task_id=task_config.task_id,
+                status="success",
+                start_time=now - timedelta(minutes=5 - i),
+                trigger_type=tt,
+            )
+            tmp_db.add_execution(exec_rec)
+
+        scheduled = tmp_db.list_executions_by_trigger(task_config.task_id, "scheduled")
+        assert len(scheduled) == 2
+        for e in scheduled:
+            assert e.trigger_type == "scheduled"
+
+        manual = tmp_db.list_executions_by_trigger(task_config.task_id, "manual")
+        assert len(manual) == 2
+        for e in manual:
+            assert e.trigger_type == "manual"
+
+        retry = tmp_db.list_executions_by_trigger(task_config.task_id, "retry")
+        assert len(retry) == 1
+        assert retry[0].trigger_type == "retry"
+
+        health = tmp_db.list_executions_by_trigger(task_config.task_id, "health_check")
+        assert len(health) == 0
+
+    def test_old_records_trigger_type_none_compatibility(self, tmp_db):
+        """旧记录（trigger_type 为 None）的兼容性."""
+        from croncopilot.core.task import TaskConfig
+        from datetime import datetime
+        import sqlalchemy
+
+        task_config = TaskConfig(name="old_record_compat", script_path="/tmp/t.py")
+        record = TaskRecord(
+            id=task_config.task_id, name=task_config.name, script_path="/tmp/t.py"
+        )
+        tmp_db.add_task(record)
+
+        # Insert a record with trigger_type=NULL via raw SQL
+        # to simulate pre-migration data that truly has no trigger_type
+        with tmp_db._engine.connect() as conn:
+            conn.execute(sqlalchemy.text(
+                "INSERT INTO task_executions (task_id, status, start_time, trigger_type, retry_count) "
+                "VALUES (:tid, 'success', :st, NULL, 0)"
+            ), {"tid": task_config.task_id, "st": datetime.now().isoformat()})
+            conn.commit()
+
+        # Verify the record can be read back with trigger_type=None
+        execs = tmp_db.list_executions(task_config.task_id)
+        assert len(execs) == 1
+        assert execs[0].trigger_type is None
+
+        # New records should have default trigger_type
+        new_exec = TaskExecution(
+            task_id=task_config.task_id,
+            status="success",
+            start_time=datetime.now(),
+        )
+        tmp_db.add_execution(new_exec)
+
+        execs = tmp_db.list_executions(task_config.task_id)
+        assert len(execs) == 2
+        # The new record should have default 'scheduled'
+        trigger_types = [e.trigger_type for e in execs]
+        assert "scheduled" in trigger_types
+        assert None in trigger_types

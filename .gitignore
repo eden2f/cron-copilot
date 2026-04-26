@@ -28,3 +28,18 @@ htmlcov/
 # CronCopilot runtime data
 .croncopilot/
 .qoder/
+
+# 敏感文件
+*.pem
+*.key
+*.p12
+.env.local
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# Trae IDE 过程文件
+.trae/
+.trae-*
+

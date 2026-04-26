@@ -37,7 +37,13 @@ class LogConfig:
 
 @dataclass
 class AlertEmailConfig:
-    """Email alert channel configuration."""
+    """Email alert channel configuration.
+
+    The ``username`` and ``password`` fields can alternatively be supplied
+    via the environment variables ``CRONCOPILOT_SMTP_USER`` and
+    ``CRONCOPILOT_SMTP_PASSWORD``.  When set, environment variables take
+    precedence over values in the configuration file.
+    """
 
     enabled: bool = False
     smtp_host: str = ""

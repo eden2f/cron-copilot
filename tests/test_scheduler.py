@@ -2,6 +2,7 @@
 
 import uuid
 import pytest
+from unittest.mock import MagicMock, patch
 
 from croncopilot.core.task import (
     TaskConfig,
@@ -182,4 +183,29 @@ class TestSchedulerManager:
             sm.add_task(config)
         tasks = sm.list_tasks()
         assert len(tasks) == 3
+        executor.shutdown(wait=False)
+
+    def test_run_task_now_trigger_type(self, tmp_db, default_config):
+        """run_task_now() 调用 executor.submit() 时传递 trigger_type='manual' 和 skip_holiday_check=True."""
+        sm, executor = self._make_scheduler(tmp_db, default_config)
+
+        task_config = TaskConfig(
+            name="run_now_trigger",
+            script_path="/tmp/t.py",
+            schedule_type="daily",
+            schedule_expr="09:00",
+        )
+        sm.add_task(task_config)
+
+        # Mock executor.submit to capture call args
+        executor.submit = MagicMock(return_value=True)
+
+        sm.run_task_now(task_config.task_id)
+
+        executor.submit.assert_called_once()
+        call_args = executor.submit.call_args
+        assert call_args[0][0] is task_config
+        assert call_args[1]["skip_holiday_check"] is True
+        assert call_args[1]["trigger_type"] == "manual"
+
         executor.shutdown(wait=False)

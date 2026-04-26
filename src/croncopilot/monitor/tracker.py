@@ -35,7 +35,7 @@ class ExecutionTracker:
     # Callback hooks
     # ------------------------------------------------------------------
 
-    def on_task_start(self, task_id: str, task_config: TaskConfig) -> None:
+    def on_task_start(self, task_id: str, task_config: TaskConfig, *, trigger_type: str = "scheduled") -> None:
         """Record the start of a task execution.
 
         Intended to be registered as the
@@ -44,12 +44,15 @@ class ExecutionTracker:
         Parameters:
             task_id: Unique task identifier.
             task_config: Configuration of the task being started.
+            trigger_type: How the task was triggered (``"scheduled"``,
+                ``"manual"``, ``"retry"``, ``"health_check"``).
         """
         try:
             execution = TaskExecution(
                 task_id=task_id,
                 status="running",
                 start_time=datetime.now(),
+                trigger_type=trigger_type,
             )
             self._db.add_execution(execution)
             self._active_executions[task_id] = execution

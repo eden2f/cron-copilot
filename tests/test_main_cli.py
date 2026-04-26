@@ -437,6 +437,38 @@ class TestTaskRun:
         assert result.exit_code != 0
         assert "不存在" in result.output
 
+    @patch("croncopilot.main._init_light")
+    @patch("croncopilot.main.setup_logging")
+    @patch("croncopilot.main.time")
+    def test_task_run_trigger_type_manual(self, mock_time, mock_setup_log, mock_init_light):
+        """task run 命令调用 executor.submit() 时传递 trigger_type='manual'."""
+        config = _make_config()
+        db = _make_db_manager()
+        db.get_task_by_name.return_value = _make_task_record()
+        mock_init_light.return_value = (config, db)
+
+        with patch("croncopilot.core.task.record_to_task_config") as mock_r2t, \
+             patch("croncopilot.core.executor.TaskExecutor") as MockExec:
+            mock_r2t.return_value = MagicMock(task_id="task-001")
+            executor = MockExec.return_value
+            executor.submit.return_value = True
+            executor.get_running_tasks.return_value = []
+
+            latest = MagicMock()
+            latest.status = "success"
+            latest.duration = 0.5
+            db.get_latest_execution.return_value = latest
+
+            runner = CliRunner()
+            result = runner.invoke(cli, ["task", "run", "demo_task"])
+
+        assert result.exit_code == 0, result.output
+        # Verify submit was called with trigger_type="manual"
+        executor.submit.assert_called_once()
+        call_kwargs = executor.submit.call_args[1]
+        assert call_kwargs["trigger_type"] == "manual"
+        assert call_kwargs["skip_holiday_check"] is True
+
 
 class TestTaskRemove:
     """task remove 命令测试."""

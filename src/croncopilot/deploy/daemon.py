@@ -136,12 +136,17 @@ class DaemonManager:
         """
         pid_dir = os.path.dirname(self._pid_file)
         if pid_dir:
+            created = not os.path.isdir(pid_dir)
             os.makedirs(pid_dir, exist_ok=True)
+            if created:
+                os.chmod(pid_dir, 0o700)
+                logger.debug("PID directory created with mode 0700: %s", pid_dir)
 
         with open(self._pid_file, "w", encoding="utf-8") as fh:
             fh.write(str(os.getpid()))
+        os.chmod(self._pid_file, 0o600)
 
-        logger.debug("PID file written: %s (PID: %d)", self._pid_file, os.getpid())
+        logger.debug("PID file written (mode 0600): %s (PID: %d)", self._pid_file, os.getpid())
 
     def remove_pid(self) -> None:
         """Delete the PID file if it exists."""

@@ -59,6 +59,51 @@ class TestExecutionTracker:
         # Should no longer be active
         assert task_config.task_id not in tracker.get_active_executions()
 
+    def test_tracker_on_task_start_with_trigger_type(self, tmp_db):
+        """on_task_start 传递 trigger_type 后，TaskExecution 中 trigger_type 正确."""
+        task_config = TaskConfig(name="track_trigger", script_path="/tmp/t.py")
+        record = TaskRecord(id=task_config.task_id, name=task_config.name, script_path="/tmp/t.py")
+        tmp_db.add_task(record)
+
+        tracker = ExecutionTracker(db_manager=tmp_db)
+        tracker.on_task_start(task_config.task_id, task_config, trigger_type="manual")
+
+        active = tracker.get_active_executions()
+        assert task_config.task_id in active
+        assert active[task_config.task_id].trigger_type == "manual"
+
+        # Also verify it was persisted to DB
+        execs = tmp_db.list_executions(task_config.task_id)
+        assert len(execs) == 1
+        assert execs[0].trigger_type == "manual"
+
+    def test_tracker_on_task_start_default_trigger_type(self, tmp_db):
+        """on_task_start 不传 trigger_type 时默认为 'scheduled'."""
+        task_config = TaskConfig(name="track_default_trigger", script_path="/tmp/t.py")
+        record = TaskRecord(id=task_config.task_id, name=task_config.name, script_path="/tmp/t.py")
+        tmp_db.add_task(record)
+
+        tracker = ExecutionTracker(db_manager=tmp_db)
+        tracker.on_task_start(task_config.task_id, task_config)
+
+        active = tracker.get_active_executions()
+        assert active[task_config.task_id].trigger_type == "scheduled"
+
+        execs = tmp_db.list_executions(task_config.task_id)
+        assert execs[0].trigger_type == "scheduled"
+
+    def test_tracker_on_task_start_retry_trigger_type(self, tmp_db):
+        """on_task_start 传递 trigger_type='retry' 时正确记录."""
+        task_config = TaskConfig(name="track_retry_trigger", script_path="/tmp/t.py")
+        record = TaskRecord(id=task_config.task_id, name=task_config.name, script_path="/tmp/t.py")
+        tmp_db.add_task(record)
+
+        tracker = ExecutionTracker(db_manager=tmp_db)
+        tracker.on_task_start(task_config.task_id, task_config, trigger_type="retry")
+
+        active = tracker.get_active_executions()
+        assert active[task_config.task_id].trigger_type == "retry"
+
     def test_consecutive_failures(self, tmp_db):
         """连续失败计数正确."""
         task_config = TaskConfig(name="consec_fail", script_path="/tmp/t.py")

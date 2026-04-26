@@ -194,8 +194,9 @@ class TestTaskExecutor:
         start_args = {}
         complete_args = {}
 
-        def on_start(task_id, task_config):
+        def on_start(task_id, task_config, **kwargs):
             start_args["task_id"] = task_id
+            start_args["trigger_type"] = kwargs.get("trigger_type", "scheduled")
             start_called.set()
 
         def on_complete(task_id, success, result):
@@ -228,6 +229,129 @@ class TestTaskExecutor:
         assert complete_args["success"] is True
 
         executor.shutdown(wait=True)
+
+    def test_submit_default_trigger_type(self, tmp_db, sample_script):
+        """submit() 默认 trigger_type 为 'scheduled'."""
+        executor = TaskExecutor(max_workers=2, db_manager=tmp_db)
+
+        start_event = threading.Event()
+        captured = {}
+
+        def on_start(task_id, task_config, **kwargs):
+            captured["trigger_type"] = kwargs.get("trigger_type", "scheduled")
+            start_event.set()
+
+        executor.on_task_start = on_start
+        executor.on_task_complete = lambda tid, s, r: None
+
+        task_config = TaskConfig(
+            name="default_trigger",
+            script_path=sample_script,
+            schedule_type="daily",
+            schedule_expr="08:00",
+            timeout=30,
+        )
+        record = TaskRecord(
+            id=task_config.task_id, name=task_config.name,
+            script_path=task_config.script_path,
+        )
+        tmp_db.add_task(record)
+
+        executor.submit(task_config)
+        assert start_event.wait(timeout=10)
+        assert captured["trigger_type"] == "scheduled"
+        executor.shutdown(wait=True)
+
+    def test_submit_with_manual_trigger_type(self, tmp_db, sample_script):
+        """submit(trigger_type='manual') 时 RunningTaskInfo 和回调正确记录."""
+        executor = TaskExecutor(max_workers=2, db_manager=tmp_db)
+
+        start_event = threading.Event()
+        captured = {}
+
+        def on_start(task_id, task_config, **kwargs):
+            captured["trigger_type"] = kwargs.get("trigger_type", "scheduled")
+            start_event.set()
+
+        executor.on_task_start = on_start
+        executor.on_task_complete = lambda tid, s, r: None
+
+        task_config = TaskConfig(
+            name="manual_trigger",
+            script_path=sample_script,
+            schedule_type="daily",
+            schedule_expr="08:00",
+            timeout=30,
+        )
+        record = TaskRecord(
+            id=task_config.task_id, name=task_config.name,
+            script_path=task_config.script_path,
+        )
+        tmp_db.add_task(record)
+
+        executor.submit(task_config, trigger_type="manual")
+        assert start_event.wait(timeout=10)
+        assert captured["trigger_type"] == "manual"
+        executor.shutdown(wait=True)
+
+    def test_submit_with_retry_trigger_type(self, tmp_db, sample_script):
+        """submit(trigger_type='retry') 时回调收到正确的 trigger_type."""
+        executor = TaskExecutor(max_workers=2, db_manager=tmp_db)
+
+        start_event = threading.Event()
+        captured = {}
+
+        def on_start(task_id, task_config, **kwargs):
+            captured["trigger_type"] = kwargs.get("trigger_type", "scheduled")
+            start_event.set()
+
+        executor.on_task_start = on_start
+        executor.on_task_complete = lambda tid, s, r: None
+
+        task_config = TaskConfig(
+            name="retry_trigger",
+            script_path=sample_script,
+            schedule_type="daily",
+            schedule_expr="08:00",
+            timeout=30,
+        )
+        record = TaskRecord(
+            id=task_config.task_id, name=task_config.name,
+            script_path=task_config.script_path,
+        )
+        tmp_db.add_task(record)
+
+        executor.submit(task_config, trigger_type="retry")
+        assert start_event.wait(timeout=10)
+        assert captured["trigger_type"] == "retry"
+        executor.shutdown(wait=True)
+
+    def test_running_task_info_trigger_type(self, tmp_db, slow_script):
+        """RunningTaskInfo 中正确记录 trigger_type."""
+        executor = TaskExecutor(max_workers=2, db_manager=tmp_db)
+
+        task_config = TaskConfig(
+            name="info_trigger",
+            script_path=slow_script,
+            schedule_type="daily",
+            schedule_expr="08:00",
+            timeout=60,
+        )
+        record = TaskRecord(
+            id=task_config.task_id, name=task_config.name,
+            script_path=task_config.script_path,
+        )
+        tmp_db.add_task(record)
+
+        executor.submit(task_config, trigger_type="manual")
+        import time as _time
+        _time.sleep(1)
+
+        running = executor.get_running_tasks()
+        assert task_config.task_id in running
+        assert running[task_config.task_id].trigger_type == "manual"
+
+        executor.shutdown(wait=False)
 
     def test_dependency_check(self, tmp_db, sample_script):
         """依赖任务未完成时不执行."""

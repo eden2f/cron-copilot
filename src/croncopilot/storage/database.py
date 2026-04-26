@@ -46,15 +46,33 @@ class DatabaseManager:
 
         # 自动迁移：为已有表添加新列
         import sqlalchemy
-        with self._engine.connect() as conn:
-            inspector = sqlalchemy.inspect(self._engine)
-            columns = [c['name'] for c in inspector.get_columns('tasks')]
-            if 'holiday_mode' not in columns:
-                conn.execute(sqlalchemy.text(
-                    "ALTER TABLE tasks ADD COLUMN holiday_mode VARCHAR(32) DEFAULT 'none'"
-                ))
-                conn.commit()
-                logger.info("Migrated: added holiday_mode column to tasks table")
+        try:
+            with self._engine.connect() as conn:
+                inspector = sqlalchemy.inspect(self._engine)
+                columns = [c['name'] for c in inspector.get_columns('tasks')]
+                if 'holiday_mode' not in columns:
+                    conn.execute(sqlalchemy.text(
+                        "ALTER TABLE tasks ADD COLUMN holiday_mode VARCHAR(32) DEFAULT 'none'"
+                    ))
+                    conn.commit()
+                    logger.info("Migrated: added holiday_mode column to tasks table")
+
+                # 迁移 task_executions 表：添加 trigger_type 列
+                exec_columns = [c['name'] for c in inspector.get_columns('task_executions')]
+                if 'trigger_type' not in exec_columns:
+                    conn.execute(sqlalchemy.text(
+                        "ALTER TABLE task_executions ADD COLUMN trigger_type VARCHAR(32) DEFAULT 'scheduled'"
+                    ))
+                    conn.commit()
+                    logger.info("Migrated: added trigger_type column to task_executions table")
+        except (sqlalchemy.exc.OperationalError, sqlalchemy.exc.ProgrammingError) as exc:
+            logger.warning("Database migration skipped due to error: %s", exc)
+            # Rollback any partial transaction to keep the connection clean
+            try:
+                with self._engine.connect() as conn:
+                    conn.rollback()
+            except Exception:
+                pass
 
         logger.info("Database initialised at %s", db_path)
 
@@ -201,6 +219,29 @@ class DatabaseManager:
             return list(
                 session.query(TaskExecution)
                 .filter_by(task_id=task_id)
+                .order_by(desc(TaskExecution.id))
+                .limit(limit)
+                .all()
+            )
+
+    def list_executions_by_trigger(
+        self, task_id: str, trigger_type: str, limit: int = 50
+    ) -> list[TaskExecution]:
+        """List recent executions for a task filtered by trigger type.
+
+        Parameters:
+            task_id: UUID of the parent task.
+            trigger_type: Trigger type to filter by (e.g. ``"scheduled"``,
+                ``"manual"``, ``"retry"``, ``"health_check"``).
+            limit: Maximum number of records to return.
+
+        Returns:
+            List of ``TaskExecution`` instances, newest first.
+        """
+        with self.get_session() as session:
+            return list(
+                session.query(TaskExecution)
+                .filter_by(task_id=task_id, trigger_type=trigger_type)
                 .order_by(desc(TaskExecution.id))
                 .limit(limit)
                 .all()

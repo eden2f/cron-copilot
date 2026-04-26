@@ -81,6 +81,10 @@ class TaskExecution(Base):
     cpu_usage: Mapped[float | None] = mapped_column(Float, nullable=True)
     memory_usage: Mapped[float | None] = mapped_column(Float, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    trigger_type: Mapped[str | None] = mapped_column(
+        String(32), default="scheduled", nullable=True,
+        comment="触发类型: scheduled / manual / retry / health_check"
+    )
 
     def __repr__(self) -> str:
         return f"<TaskExecution(id={self.id!r}, task_id={self.task_id!r}, status={self.status!r})>"

@@ -8,6 +8,7 @@ and delivery logging.
 
 from __future__ import annotations
 
+import os
 import smtplib
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
@@ -75,8 +76,11 @@ class EmailNotifier:
                     server = smtplib.SMTP(self._config.smtp_host, self._config.smtp_port)
 
             try:
-                if self._config.username and self._config.password:
-                    server.login(self._config.username, self._config.password)
+                # Prefer environment variables over config file values
+                username = os.environ.get("CRONCOPILOT_SMTP_USER") or self._config.username
+                password = os.environ.get("CRONCOPILOT_SMTP_PASSWORD") or self._config.password
+                if username and password:
+                    server.login(username, password)
                 server.sendmail(
                     msg["From"],
                     target_recipients,

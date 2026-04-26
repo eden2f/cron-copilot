@@ -47,6 +47,35 @@ class ScriptManager:
         logger.debug("ScriptManager initialised (script_dir=%s)", self._script_dir)
 
     # ------------------------------------------------------------------
+    # Path safety
+    # ------------------------------------------------------------------
+
+    def _validate_script_path(self, script_path: str) -> str:
+        """Validate that *script_path* resolves to a location inside ``script_dir``.
+
+        This prevents path-traversal attacks where a crafted path (e.g.
+        containing ``..``) could reference files outside the managed
+        directory.
+
+        Parameters:
+            script_path: The path to validate (may be relative).
+
+        Returns:
+            The resolved absolute path.
+
+        Raises:
+            ValueError: If the resolved path falls outside ``script_dir``.
+        """
+        abs_path = os.path.abspath(script_path)
+        abs_dir = os.path.abspath(self._script_dir)
+        if not (abs_path.startswith(abs_dir + os.sep) or abs_path == abs_dir):
+            raise ValueError(
+                f"Script path '{script_path}' resolves outside the allowed "
+                f"script directory '{abs_dir}'."
+            )
+        return abs_path
+
+    # ------------------------------------------------------------------
     # Registration
     # ------------------------------------------------------------------
 
@@ -109,6 +138,9 @@ class ScriptManager:
                 logger.error("Failed to copy script to script_dir: %s", exc)
                 raise
             script_path = dest
+
+        # Validate the final path is within the allowed directory.
+        self._validate_script_path(script_path)
 
         # Compute hash.
         file_hash = self._version_mgr.compute_hash(script_path)
@@ -219,6 +251,9 @@ class ScriptManager:
                     logger.error("Failed to copy updated script: %s", exc)
                     raise
                 new_path = dest
+
+            # Validate the final path is within the allowed directory.
+            self._validate_script_path(new_path)
 
             metadata.path = new_path
             metadata.file_hash = self._version_mgr.compute_hash(new_path)
