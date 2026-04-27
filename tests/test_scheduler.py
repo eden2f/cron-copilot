@@ -138,6 +138,15 @@ class TestSchedulerManager:
         assert sm.get_task(task_id) is not None
         executor.shutdown(wait=False)
 
+    def test_scheduler_misfire_grace_time(self, tmp_db, default_config):
+        """调度器 misfire_grace_time 应为 60 秒，避免错过的任务无限期补偿执行."""
+        sm, executor = self._make_scheduler(tmp_db, default_config)
+        job_defaults = sm._scheduler._job_defaults
+        assert job_defaults.get('misfire_grace_time') == 60
+        assert job_defaults.get('coalesce') is True
+        assert job_defaults.get('max_instances') == 1
+        executor.shutdown(wait=False)
+
     def test_scheduler_remove_task(self, tmp_db, default_config):
         """移除任务."""
         sm, executor = self._make_scheduler(tmp_db, default_config)
@@ -207,5 +216,68 @@ class TestSchedulerManager:
         assert call_args[0][0] is task_config
         assert call_args[1]["skip_holiday_check"] is True
         assert call_args[1]["trigger_type"] == "manual"
+
+        executor.shutdown(wait=False)
+
+    def test_task_wrapper_skips_when_retrying(self, tmp_db, default_config):
+        """_task_wrapper 在任务正在重试时跳过 scheduled 触发."""
+        from croncopilot.core.executor import TaskExecutor
+        from croncopilot.core.scheduler import SchedulerManager
+
+        executor = TaskExecutor(max_workers=2, db_manager=tmp_db)
+        sm = SchedulerManager(config=default_config, db_manager=tmp_db, executor=executor)
+
+        task_config = TaskConfig(
+            name="skip_when_retrying",
+            script_path="/tmp/t.py",
+            schedule_type="daily",
+            schedule_expr="09:00",
+        )
+        sm.add_task(task_config)
+
+        # Mock executor.submit to track if it gets called
+        executor.submit = MagicMock(return_value=True)
+
+        # Create a mock retry_manager that reports the task is retrying
+        mock_retry_manager = MagicMock()
+        mock_retry_manager.is_retrying.return_value = True
+        sm.set_retry_manager(mock_retry_manager)
+
+        # Call _task_wrapper directly — it should skip execution
+        sm._task_wrapper(task_config.task_id)
+
+        executor.submit.assert_not_called()
+        mock_retry_manager.is_retrying.assert_called_once_with(task_config.task_id)
+
+        executor.shutdown(wait=False)
+
+    def test_task_wrapper_runs_when_not_retrying(self, tmp_db, default_config):
+        """_task_wrapper 在任务未重试时正常执行."""
+        from croncopilot.core.executor import TaskExecutor
+        from croncopilot.core.scheduler import SchedulerManager
+
+        executor = TaskExecutor(max_workers=2, db_manager=tmp_db)
+        sm = SchedulerManager(config=default_config, db_manager=tmp_db, executor=executor)
+
+        task_config = TaskConfig(
+            name="run_when_not_retrying",
+            script_path="/tmp/t.py",
+            schedule_type="daily",
+            schedule_expr="09:00",
+        )
+        sm.add_task(task_config)
+
+        # Mock executor.submit
+        executor.submit = MagicMock(return_value=True)
+
+        # Create a mock retry_manager that reports the task is NOT retrying
+        mock_retry_manager = MagicMock()
+        mock_retry_manager.is_retrying.return_value = False
+        sm.set_retry_manager(mock_retry_manager)
+
+        # Call _task_wrapper — it should proceed to submit
+        sm._task_wrapper(task_config.task_id)
+
+        executor.submit.assert_called_once()
 
         executor.shutdown(wait=False)

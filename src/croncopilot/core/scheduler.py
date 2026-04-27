@@ -7,7 +7,10 @@ update, pause, resume, run-now) and delegates actual execution to a
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
+
+if TYPE_CHECKING:
+    from croncopilot.recovery.retry import RetryManager
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -43,14 +46,16 @@ class SchedulerManager:
         config: AppConfig,
         db_manager: DatabaseManager,
         executor: TaskExecutor,
+        retry_manager: Optional["RetryManager"] = None,
     ) -> None:
         self._config = config
         self._db = db_manager
         self._executor = executor
+        self._retry_manager: Optional["RetryManager"] = retry_manager
         self._scheduler = BackgroundScheduler(
             timezone=config.scheduler.timezone,
             job_defaults={
-                'misfire_grace_time': None,  # 无论错过多久都补偿执行一次（配合 coalesce）
+                'misfire_grace_time': 60,    # 错过超过 60 秒的任务直接跳过，避免长时间未运行后意外补偿执行
                 'coalesce': True,            # 多次错过的执行合并为一次
                 'max_instances': 1,          # 限制同一任务同时只有一个实例
             },
@@ -61,6 +66,16 @@ class SchedulerManager:
         logger.info(
             "SchedulerManager initialised (timezone=%s)", config.scheduler.timezone
         )
+
+    def set_retry_manager(self, retry_manager: "RetryManager") -> None:
+        """Attach a :class:`RetryManager` so that scheduled triggers can
+        be skipped while a retry is in progress.
+
+        Parameters:
+            retry_manager: The retry manager instance.
+        """
+        self._retry_manager = retry_manager
+        logger.info("SchedulerManager: RetryManager attached")
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -346,6 +361,16 @@ class SchedulerManager:
 
         if not task_config.enabled:
             logger.debug("Task %s is disabled; skipping execution", task_id)
+            return
+
+        # Skip if the task is currently being retried by RetryManager to
+        # prevent conflict between retry and APScheduler misfire compensation.
+        if self._retry_manager is not None and self._retry_manager.is_retrying(task_id):
+            logger.info(
+                "Task %s (%s) is currently being retried; skipping scheduled trigger",
+                task_id,
+                task_config.name,
+            )
             return
 
         # 节假日检查

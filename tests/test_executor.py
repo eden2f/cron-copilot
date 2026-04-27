@@ -353,6 +353,76 @@ class TestTaskExecutor:
 
         executor.shutdown(wait=False)
 
+    def test_max_instances_concurrent_submit(self, tmp_db, slow_script):
+        """并发提交时 max_instances 限制正确生效（竞态条件修复验证）."""
+        executor = TaskExecutor(max_workers=4, db_manager=tmp_db)
+
+        # 创建 max_instances=2 的任务配置（使用固定 task_id）
+        task_config = TaskConfig(
+            name="race_test",
+            script_path=slow_script,
+            schedule_type="daily",
+            schedule_expr="08:00",
+            timeout=30,
+            max_instances=2,
+        )
+        record = TaskRecord(
+            id=task_config.task_id, name=task_config.name,
+            script_path=slow_script,
+        )
+        tmp_db.add_task(record)
+
+        # Patch _process_queue to no-op so tasks stay in queue and don't
+        # drain during the concurrent submit phase.
+        with patch.object(executor, '_process_queue', lambda: None):
+            results = []
+            lock = threading.Lock()
+            barrier = threading.Barrier(10)
+
+            def submit_task():
+                barrier.wait()  # 所有线程同时开始
+                r = executor.submit(task_config)
+                with lock:
+                    results.append(r)
+
+            threads = [threading.Thread(target=submit_task) for _ in range(10)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+        # 只有 max_instances=2 个应该被接受（因为队列未被消费）
+        accepted = sum(1 for r in results if r is True)
+        assert accepted == 2, f"Expected 2 accepted, got {accepted}"
+
+        executor.shutdown(wait=False)
+
+    def test_max_instances_single_thread(self, tmp_db, slow_script):
+        """单线程下 max_instances 限制正确生效."""
+        executor = TaskExecutor(max_workers=4, db_manager=tmp_db)
+
+        task_config = TaskConfig(
+            name="single_max",
+            script_path=slow_script,
+            schedule_type="daily",
+            schedule_expr="08:00",
+            timeout=30,
+            max_instances=1,
+        )
+        record = TaskRecord(
+            id=task_config.task_id, name=task_config.name,
+            script_path=slow_script,
+        )
+        tmp_db.add_task(record)
+
+        # 第一次提交应成功
+        assert executor.submit(task_config) is True
+        # 第二次提交应被拒绝（第一个还在运行）
+        assert executor.submit(task_config) is False
+
+        time.sleep(1)
+        executor.shutdown(wait=False)
+
     def test_dependency_check(self, tmp_db, sample_script):
         """依赖任务未完成时不执行."""
         executor = TaskExecutor(max_workers=2, db_manager=tmp_db)

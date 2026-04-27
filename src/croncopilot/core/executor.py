@@ -127,17 +127,7 @@ class TaskExecutor:
                     )
                     return False
 
-        # Concurrency limit per task
-        if not self._check_max_instances(task_config):
-            logger.warning(
-                "Task %s (%s) rejected: max_instances (%d) reached",
-                task_config.task_id,
-                task_config.name,
-                task_config.max_instances,
-            )
-            return False
-
-        # Dependency check
+        # Dependency check (no lock needed, reads from DB)
         if not self._check_dependencies(task_config):
             logger.warning(
                 "Task %s (%s) rejected: dependencies not satisfied",
@@ -146,11 +136,33 @@ class TaskExecutor:
             )
             return False
 
+        # Atomic check-and-enqueue: verify max_instances and enqueue under
+        # the same lock to prevent race conditions.
         with self._lock:
+            running_count = sum(
+                1
+                for info in self._running_tasks.values()
+                if info.task_id == task_config.task_id
+            )
+            queued_count = sum(
+                1
+                for (_p, _t, tc, _tt) in self._priority_queue
+                if tc.task_id == task_config.task_id
+            )
+            if running_count + queued_count >= task_config.max_instances:
+                logger.warning(
+                    "Task %s (%s) rejected: max_instances (%d) reached",
+                    task_config.task_id,
+                    task_config.name,
+                    task_config.max_instances,
+                )
+                return False
+
             heapq.heappush(
                 self._priority_queue,
                 (task_config.priority, time.monotonic(), task_config, trigger_type),
             )
+
         logger.info(
             "Task %s (%s) enqueued with priority %d",
             task_config.task_id,

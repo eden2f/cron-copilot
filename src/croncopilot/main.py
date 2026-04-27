@@ -128,6 +128,8 @@ def _init_components(config_path: Optional[str] = None) -> Dict[str, Any]:
     alert_manager.bind_tracker(tracker)
     # retry -> executor
     retry_manager.bind_executor(executor)
+    # retry -> scheduler (allow scheduler to skip triggers during retry)
+    scheduler.set_retry_manager(retry_manager)
 
     return {
         "config": config,

@@ -9,7 +9,7 @@ exhausted.
 from __future__ import annotations
 
 import threading
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Set
 
 from croncopilot.config.schema import RecoveryConfig
 from croncopilot.core.executor import TaskExecutor
@@ -49,6 +49,7 @@ class RetryManager:
         self._retry_counts: Dict[str, int] = {}  # task_id -> current_retry_count
         self._rollback_handlers: Dict[str, Callable[[], bool]] = {}  # task_id -> rollback_function
         self._task_configs: Dict[str, TaskConfig] = {}  # task_id -> TaskConfig (cached for retry)
+        self._retrying_tasks: Set[str] = set()  # task_ids currently being retried
         self._lock: threading.Lock = threading.Lock()
 
     # ------------------------------------------------------------------
@@ -156,6 +157,13 @@ class RetryManager:
             delay: Seconds to wait before resubmission.
         """
 
+        task_id = task_config.task_id
+
+        # Mark task as retrying before starting the timer.
+        with self._lock:
+            self._retrying_tasks.add(task_id)
+        logger.debug("RetryManager: marked task %s as retrying", task_id)
+
         def _retry() -> None:
             logger.info(
                 "RetryManager: resubmitting task %s (%s) after %.1fs delay",
@@ -176,6 +184,11 @@ class RetryManager:
                     "RetryManager: unexpected error resubmitting task %s",
                     task_config.task_id,
                 )
+            finally:
+                # Clear retrying flag after submission completes.
+                with self._lock:
+                    self._retrying_tasks.discard(task_id)
+                logger.debug("RetryManager: cleared retrying flag for task %s", task_id)
 
         timer = threading.Timer(delay, _retry)
         timer.daemon = True
@@ -218,6 +231,22 @@ class RetryManager:
     # Query / reset helpers
     # ------------------------------------------------------------------
 
+    def is_retrying(self, task_id: str) -> bool:
+        """Check whether a task is currently in a retry cycle.
+
+        This is used by the scheduler to skip scheduled triggers while
+        a retry is pending or in progress, preventing conflicts between
+        the retry mechanism and APScheduler's misfire compensation.
+
+        Parameters:
+            task_id: Unique task identifier.
+
+        Returns:
+            ``True`` if the task is currently being retried.
+        """
+        with self._lock:
+            return task_id in self._retrying_tasks
+
     def get_retry_count(self, task_id: str) -> int:
         """Return the current retry count for a task.
 
@@ -242,6 +271,7 @@ class RetryManager:
         with self._lock:
             removed = self._retry_counts.pop(task_id, None)
             self._task_configs.pop(task_id, None)
+            self._retrying_tasks.discard(task_id)
         if removed is not None:
             logger.debug("RetryManager: reset retry count for task %s", task_id)
 

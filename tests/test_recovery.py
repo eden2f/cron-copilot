@@ -200,6 +200,63 @@ class TestRetryManager:
 
         executor.shutdown(wait=False)
 
+    def test_is_retrying_during_retry(self, tmp_db):
+        """is_retrying() 在重试等待期间返回 True."""
+        rm, executor = self._make_retry_manager(tmp_db, max_retries=3, retry_delay=0.5)
+
+        task_config = TaskConfig(
+            name="is_retrying_test",
+            script_path="/tmp/t.py",
+            max_retries=3,
+        )
+
+        # Block executor.submit so the retrying flag stays set
+        submit_event = threading.Event()
+        def slow_submit(tc, **kwargs):
+            submit_event.wait(timeout=2)
+            return True
+        executor.submit = slow_submit
+
+        assert rm.is_retrying(task_config.task_id) is False
+
+        rm.on_task_failed(task_config.task_id, task_config, "error")
+
+        # The flag should be set immediately after on_task_failed schedules a retry
+        assert rm.is_retrying(task_config.task_id) is True
+
+        # Release the submit and wait for it to complete
+        submit_event.set()
+        time.sleep(1.0)
+
+        # After retry submission completes, flag should be cleared
+        assert rm.is_retrying(task_config.task_id) is False
+
+        executor.shutdown(wait=False)
+
+    def test_is_retrying_cleared_after_success_reset(self, tmp_db):
+        """reset_retry_count() 同时清除 retrying 标记."""
+        rm, executor = self._make_retry_manager(tmp_db, max_retries=3, retry_delay=10.0)
+
+        task_config = TaskConfig(
+            name="retrying_reset_test",
+            script_path="/tmp/t.py",
+            max_retries=3,
+        )
+
+        # Use a very long delay so the timer hasn't fired yet
+        rm._schedule_retry = lambda tc, d: None
+        # Manually add the retrying flag
+        with rm._lock:
+            rm._retrying_tasks.add(task_config.task_id)
+
+        assert rm.is_retrying(task_config.task_id) is True
+
+        rm.reset_retry_count(task_config.task_id)
+
+        assert rm.is_retrying(task_config.task_id) is False
+
+        executor.shutdown(wait=False)
+
 
 class TestHealthChecker:
     """测试 HealthChecker."""
