@@ -21,12 +21,12 @@
 - **异常自愈** — 自动重试 (指数退避)、健康检查、死锁检测与自动终止
 - **守护进程** — 支持前台/后台运行，PID 管理，优雅关闭
 - **配置热重载** — 修改配置后发送 SIGHUP 信号即可生效，无需重启
-- **系统服务** — 自动生成 systemd / launchd / Windows 服务配置
+- **系统服务** — 自动生成 Linux (systemd) / macOS (launchd) 服务配置（Windows 仅生成启动脚本，不支持原生服务化部署）
 
 ## 系统要求
 
 - **Python：** 3.10 及以上
-- **操作系统：** Linux, macOS（Windows 可通过 WSL2 使用）
+- **操作系统：** Linux, macOS（原生支持）；Windows 不支持原生运行，需通过 WSL2 使用（项目依赖 `os.fork()`、`SIGTERM/SIGHUP` 等 Unix 系统机制）
 - **数据库：** SQLite（内置，无需单独安装）
 
 ### 核心依赖
