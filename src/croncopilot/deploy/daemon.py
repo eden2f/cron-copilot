@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import atexit
 import os
+import re
 import signal
+import subprocess
 import sys
 import time
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
 from croncopilot.logging.logger import get_logger
 
@@ -215,6 +217,140 @@ class DaemonManager:
 
         self.remove_pid()
         return True
+
+    # ------------------------------------------------------------------
+    # Single-instance protection
+    # ------------------------------------------------------------------
+
+    def _find_other_croncopilot_pids(self) -> List[int]:
+        """Find other CronCopilot processes via ``ps``.
+
+        Returns a list of PIDs that belong to CronCopilot processes
+        **excluding** the current process.
+        """
+        my_pid = os.getpid()
+        pids: List[int] = []
+        try:
+            output = subprocess.check_output(
+                ["ps", "aux"],
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
+            for line in output.splitlines():
+                # Match lines containing 'croncopilot' but exclude grep itself
+                if "croncopilot" not in line:
+                    continue
+                if "grep" in line:
+                    continue
+                parts = line.split()
+                if len(parts) < 2:
+                    continue
+                try:
+                    pid = int(parts[1])
+                except ValueError:
+                    continue
+                if pid == my_pid:
+                    continue
+                # Verify this looks like a croncopilot main process
+                # (only match real start commands, not editors/debuggers/etc.)
+                cmd_part = " ".join(parts[10:]) if len(parts) > 10 else ""
+                # 仅匹配 CronCopilot 主进程的启动命令
+                is_cli = "croncopilot start" in cmd_part
+                is_module = re.search(r"python\S*\s+.*-m\s+croncopilot\s+start", cmd_part) is not None
+
+                if not (is_cli or is_module):
+                    continue
+                pids.append(pid)
+        except (subprocess.SubprocessError, OSError) as exc:
+            logger.debug("Failed to enumerate processes via ps: %s", exc)
+        return pids
+
+    def _kill_pid(self, pid: int, timeout: float = 5.0) -> bool:
+        """Send SIGTERM to *pid*, wait, then escalate to SIGKILL.
+
+        Returns ``True`` if the process was terminated.
+        """
+        # SIGTERM
+        try:
+            os.kill(pid, signal.SIGTERM)
+            logger.info("Sent SIGTERM to PID %d", pid)
+        except ProcessLookupError:
+            logger.debug("PID %d already gone", pid)
+            return True
+        except OSError as exc:
+            logger.warning("Cannot send SIGTERM to PID %d: %s", pid, exc)
+            return False
+
+        # Wait
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                logger.info("PID %d terminated gracefully", pid)
+                return True
+            except OSError:
+                return True
+            time.sleep(0.1)
+
+        # Escalate
+        logger.warning("PID %d did not stop in %.1fs; sending SIGKILL", pid, timeout)
+        try:
+            os.kill(pid, signal.SIGKILL)
+            time.sleep(0.5)
+        except ProcessLookupError:
+            pass
+        except OSError as exc:
+            logger.error("Failed to SIGKILL PID %d: %s", pid, exc)
+            return False
+        return True
+
+    def stop_existing_instances(self) -> None:
+        """Ensure no other CronCopilot instance is running.
+
+        1. Check the PID file; if the recorded process is alive, stop it.
+        2. Scan for any remaining CronCopilot processes (e.g. started
+           via *launchd*) and stop them as well.
+        3. Clean up the stale PID file.
+        """
+        # --- Phase 1: PID file ---
+        pid = self.get_pid()
+        if pid is not None:
+            if pid == os.getpid():
+                # Should not happen, but guard against killing ourselves.
+                pass
+            else:
+                try:
+                    os.kill(pid, 0)
+                    # Process is alive
+                    logger.info(
+                        "检测到已有实例运行 (PID: %d)，正在停止...", pid
+                    )
+                    self._kill_pid(pid)
+                except ProcessLookupError:
+                    logger.info(
+                        "PID 文件指向已终止的进程 %d，清理残留 PID 文件", pid
+                    )
+                except PermissionError:
+                    logger.info(
+                        "检测到已有实例运行 (PID: %d, 权限受限)，尝试停止...", pid
+                    )
+                    self._kill_pid(pid)
+                except OSError:
+                    pass
+            self.remove_pid()
+
+        # --- Phase 2: scan for orphan processes ---
+        other_pids = self._find_other_croncopilot_pids()
+        for other_pid in other_pids:
+            try:
+                os.kill(other_pid, 0)
+            except (ProcessLookupError, OSError):
+                continue
+            logger.info(
+                "发现残留 CronCopilot 进程 (PID: %d)，正在停止...", other_pid
+            )
+            self._kill_pid(other_pid)
 
     # ------------------------------------------------------------------
     # Signal handlers

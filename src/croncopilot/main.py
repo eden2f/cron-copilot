@@ -276,18 +276,18 @@ def start(ctx: click.Context, daemon: bool, foreground: bool) -> None:
     health_checker = components["health_checker"]
     deadlock_detector = components["deadlock_detector"]
 
+    # ------ Single-instance protection ------
+    from croncopilot.deploy.daemon import DaemonManager
+
+    dm = DaemonManager(config.pid_file)
+    dm.stop_existing_instances()
+
     # Daemon mode
     if daemon:
-        from croncopilot.deploy.daemon import DaemonManager
-
-        dm = DaemonManager(config.pid_file)
         dm.daemonize()
         click.echo(f"✓ 守护进程已启动 (PID: {os.getpid()})")
     else:
         # Write PID file even in foreground mode
-        from croncopilot.deploy.daemon import DaemonManager
-
-        dm = DaemonManager(config.pid_file)
         dm.write_pid()
 
     # 10. Start scheduler, health checker, deadlock detector

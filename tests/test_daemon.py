@@ -2,8 +2,9 @@
 
 import os
 import signal
+import subprocess
 import pytest
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import patch, MagicMock, mock_open, call
 
 from croncopilot.deploy.daemon import DaemonManager
 
@@ -477,3 +478,232 @@ class TestDaemonManagerSignalHandlers:
 
         handlers[signal.SIGHUP](signal.SIGHUP, None)
         reload_cb.assert_called_once()
+
+
+class TestDaemonManagerKillPid:
+    """测试 _kill_pid 方法."""
+
+    def test_kill_pid_already_gone(self, tmp_dir):
+        """进程已经不存在时直接返回 True."""
+        dm = DaemonManager(os.path.join(tmp_dir, "test.pid"))
+        with patch("os.kill", side_effect=ProcessLookupError):
+            assert dm._kill_pid(12345) is True
+
+    def test_kill_pid_sigterm_succeeds(self, tmp_dir):
+        """SIGTERM 后进程正常退出."""
+        dm = DaemonManager(os.path.join(tmp_dir, "test.pid"))
+        calls = []
+
+        def fake_kill(pid, sig):
+            calls.append(sig)
+            if sig == 0:
+                raise ProcessLookupError
+
+        with patch("os.kill", side_effect=fake_kill), \
+             patch("time.monotonic", side_effect=[0, 0.1, 1]):
+            assert dm._kill_pid(12345) is True
+
+    def test_kill_pid_escalates_to_sigkill(self, tmp_dir):
+        """SIGTERM 超时后升级为 SIGKILL."""
+        dm = DaemonManager(os.path.join(tmp_dir, "test.pid"))
+
+        # monotonic: start, then always past deadline so loop exits immediately
+        monotonic_values = iter([0.0, 100.0])
+
+        def fake_kill(pid, sig):
+            pass  # always succeeds, process "alive"
+
+        with patch("os.kill", side_effect=fake_kill) as mock_kill, \
+             patch("time.monotonic", side_effect=monotonic_values), \
+             patch("time.sleep"):
+            result = dm._kill_pid(12345, timeout=5.0)
+
+        assert result is True
+        # Should have sent SIGTERM then SIGKILL
+        sigs = [c[0][1] for c in mock_kill.call_args_list]
+        assert signal.SIGTERM in sigs
+        assert signal.SIGKILL in sigs
+
+    def test_kill_pid_oserror_on_sigterm(self, tmp_dir):
+        """SIGTERM 发送失败返回 False."""
+        dm = DaemonManager(os.path.join(tmp_dir, "test.pid"))
+        with patch("os.kill", side_effect=OSError("not permitted")):
+            assert dm._kill_pid(12345) is False
+
+
+class TestFindOtherCroncopilotPids:
+    """测试 _find_other_croncopilot_pids 方法."""
+
+    def test_finds_other_pids(self, tmp_dir):
+        """从 ps 输出中找到其他 croncopilot 进程."""
+        dm = DaemonManager(os.path.join(tmp_dir, "test.pid"))
+        ps_output = (
+            "USER       PID  ...\n"
+            f"user     {os.getpid()}  0.0  0.0  0  0 ?  S  00:00  0:00 python -m croncopilot start\n"
+            "user     99999  0.0  0.0  0  0 ?  S  00:00  0:00 python -m croncopilot start --daemon\n"
+        )
+        with patch("subprocess.check_output", return_value=ps_output):
+            pids = dm._find_other_croncopilot_pids()
+        assert 99999 in pids
+        assert os.getpid() not in pids
+
+    def test_excludes_grep_lines(self, tmp_dir):
+        """排除 grep 自身的行."""
+        dm = DaemonManager(os.path.join(tmp_dir, "test.pid"))
+        ps_output = (
+            "USER       PID  ...\n"
+            "user     88888  0.0  0.0  0  0 ?  S  00:00  0:00 grep croncopilot\n"
+        )
+        with patch("subprocess.check_output", return_value=ps_output):
+            pids = dm._find_other_croncopilot_pids()
+        assert pids == []
+
+    def test_handles_subprocess_error(self, tmp_dir):
+        """ps 命令失败时返回空列表."""
+        dm = DaemonManager(os.path.join(tmp_dir, "test.pid"))
+        with patch("subprocess.check_output", side_effect=subprocess.SubprocessError):
+            assert dm._find_other_croncopilot_pids() == []
+
+    def test_ignores_editor_processes(self, tmp_dir):
+        """编辑器进程（如 vim）不会被误识别为 CronCopilot 进程."""
+        dm = DaemonManager(os.path.join(tmp_dir, "test.pid"))
+        ps_output = (
+            "USER       PID  ..\n"
+            "user     55555  0.0  0.0  0  0 ?  S  00:00  0:00 vim /path/to/croncopilot/daemon.py\n"
+            "user     55556  0.0  0.0  0  0 ?  S  00:00  0:00 python -m pdb src/croncopilot/main.py\n"
+            "user     55557  0.0  0.0  0  0 ?  S  00:00  0:00 code /home/user/croncopilot/deploy/daemon.py\n"
+        )
+        with patch("subprocess.check_output", return_value=ps_output):
+            pids = dm._find_other_croncopilot_pids()
+        assert pids == []
+
+    def test_ignores_non_start_commands(self, tmp_dir):
+        """croncopilot task run 等非 start 命令不会被误杀."""
+        dm = DaemonManager(os.path.join(tmp_dir, "test.pid"))
+        ps_output = (
+            "USER       PID  ..\n"
+            "user     66666  0.0  0.0  0  0 ?  S  00:00  0:00 croncopilot task run my_task\n"
+            "user     66667  0.0  0.0  0  0 ?  S  00:00  0:00 croncopilot status\n"
+            "user     66668  0.0  0.0  0  0 ?  S  00:00  0:00 python -m croncopilot task list\n"
+        )
+        with patch("subprocess.check_output", return_value=ps_output):
+            pids = dm._find_other_croncopilot_pids()
+        assert pids == []
+
+    def test_matches_cli_start_variants(self, tmp_dir):
+        """CLI 直接启动的各种变体都能被识别."""
+        dm = DaemonManager(os.path.join(tmp_dir, "test.pid"))
+        ps_output = (
+            "USER       PID  ..\n"
+            "user     77701  0.0  0.0  0  0 ?  S  00:00  0:00 croncopilot start\n"
+            "user     77702  0.0  0.0  0  0 ?  S  00:00  0:00 croncopilot start --daemon\n"
+            "user     77703  0.0  0.0  0  0 ?  S  00:00  0:00 croncopilot start --foreground\n"
+        )
+        with patch("subprocess.check_output", return_value=ps_output):
+            pids = dm._find_other_croncopilot_pids()
+        assert sorted(pids) == [77701, 77702, 77703]
+
+    def test_matches_module_start_variants(self, tmp_dir):
+        """python -m croncopilot start 的各种变体都能被识别."""
+        dm = DaemonManager(os.path.join(tmp_dir, "test.pid"))
+        ps_output = (
+            "USER       PID  ..\n"
+            "user     88801  0.0  0.0  0  0 ?  S  00:00  0:00 python -m croncopilot start\n"
+            "user     88802  0.0  0.0  0  0 ?  S  00:00  0:00 python3 -m croncopilot start --foreground\n"
+            "user     88803  0.0  0.0  0  0 ?  S  00:00  0:00 python3.10 -m croncopilot start --daemon\n"
+        )
+        with patch("subprocess.check_output", return_value=ps_output):
+            pids = dm._find_other_croncopilot_pids()
+        assert sorted(pids) == [88801, 88802, 88803]
+
+
+class TestStopExistingInstances:
+    """测试 stop_existing_instances 方法."""
+
+    def test_no_existing_instance(self, tmp_dir):
+        """无已有实例时正常通过."""
+        pid_file = os.path.join(tmp_dir, "test.pid")
+        dm = DaemonManager(pid_file)
+        with patch.object(dm, "_find_other_croncopilot_pids", return_value=[]):
+            dm.stop_existing_instances()  # should not raise
+
+    def test_pid_file_exists_process_alive(self, tmp_dir):
+        """PID 文件存在且进程存活时先停止再清理."""
+        pid_file = os.path.join(tmp_dir, "test.pid")
+        with open(pid_file, "w") as f:
+            f.write("12345")
+        dm = DaemonManager(pid_file)
+
+        with patch("os.kill") as mock_kill, \
+             patch.object(dm, "_kill_pid", return_value=True) as mock_kp, \
+             patch.object(dm, "_find_other_croncopilot_pids", return_value=[]):
+            dm.stop_existing_instances()
+            # os.kill(pid, 0) is called to check liveness
+            mock_kill.assert_called_once_with(12345, 0)
+            mock_kp.assert_called_once_with(12345)
+
+        # PID file should be removed
+        assert not os.path.isfile(pid_file)
+
+    def test_pid_file_exists_process_dead(self, tmp_dir):
+        """PID 文件存在但进程已死时清理 PID 文件."""
+        pid_file = os.path.join(tmp_dir, "test.pid")
+        with open(pid_file, "w") as f:
+            f.write("12345")
+        dm = DaemonManager(pid_file)
+
+        with patch("os.kill", side_effect=ProcessLookupError), \
+             patch.object(dm, "_kill_pid") as mock_kp, \
+             patch.object(dm, "_find_other_croncopilot_pids", return_value=[]):
+            dm.stop_existing_instances()
+            mock_kp.assert_not_called()
+
+        assert not os.path.isfile(pid_file)
+
+    def test_orphan_process_found_and_killed(self, tmp_dir):
+        """通过 ps 发现残留进程并停止."""
+        pid_file = os.path.join(tmp_dir, "test.pid")
+        dm = DaemonManager(pid_file)
+
+        with patch.object(dm, "_find_other_croncopilot_pids", return_value=[77777]), \
+             patch("os.kill") as mock_kill, \
+             patch.object(dm, "_kill_pid", return_value=True) as mock_kp:
+            dm.stop_existing_instances()
+            # os.kill(77777, 0) for liveness check
+            mock_kill.assert_called_once_with(77777, 0)
+            mock_kp.assert_called_once_with(77777)
+
+    def test_skips_current_pid(self, tmp_dir):
+        """PID 文件指向当前进程时不自杀."""
+        pid_file = os.path.join(tmp_dir, "test.pid")
+        my_pid = os.getpid()
+        with open(pid_file, "w") as f:
+            f.write(str(my_pid))
+        dm = DaemonManager(pid_file)
+
+        with patch.object(dm, "_kill_pid") as mock_kp, \
+             patch.object(dm, "_find_other_croncopilot_pids", return_value=[]):
+            dm.stop_existing_instances()
+            mock_kp.assert_not_called()
+
+    def test_pid_file_and_orphan(self, tmp_dir):
+        """PID 文件和 ps 同时发现不同进程，全部停止."""
+        pid_file = os.path.join(tmp_dir, "test.pid")
+        with open(pid_file, "w") as f:
+            f.write("11111")
+        dm = DaemonManager(pid_file)
+
+        kill_targets = []
+
+        def fake_os_kill(pid, sig):
+            if sig == 0:
+                return  # alive
+
+        with patch("os.kill", side_effect=fake_os_kill), \
+             patch.object(dm, "_kill_pid", return_value=True) as mock_kp, \
+             patch.object(dm, "_find_other_croncopilot_pids", return_value=[22222]):
+            dm.stop_existing_instances()
+            # Should have killed both 11111 and 22222
+            killed_pids = [c[0][0] for c in mock_kp.call_args_list]
+            assert 11111 in killed_pids
+            assert 22222 in killed_pids
