@@ -68,6 +68,7 @@ croncopilot init
 ```
 
 这将在 `~/.croncopilot/` 下创建：
+
 - `config.yaml` — 配置文件
 - `data.db` — SQLite 数据库
 - `logs/` — 日志目录
@@ -101,6 +102,14 @@ croncopilot task add \
     --schedule-type daily \
     --schedule "09:00" \
     --holiday-mode workday_only
+
+# 配置任务依赖（task-b 等待 task-a 完成后执行）
+croncopilot task add \
+    --name task-b \
+    --script scripts/example_task.py \
+    --schedule-type daily \
+    --schedule "09:30" \
+    --depends-on task-a
 
 # 手动执行一次
 croncopilot task run my-task
@@ -158,7 +167,7 @@ croncopilot stop && croncopilot start --daemon
 | 命令 | 说明 |
 |------|------|
 | `croncopilot init` | 初始化配置和目录结构 |
-| `croncopilot start [-d/--daemon]` | 启动调度器 |
+| `croncopilot start [-d/--daemon] [-f/--foreground]` | 启动调度器（默认前台运行） |
 | `croncopilot stop` | 停止守护进程 |
 | `croncopilot status` | 查看运行状态 |
 | `croncopilot health` | 执行系统健康检查 |
@@ -168,8 +177,8 @@ croncopilot stop && croncopilot start --daemon
 | 命令 | 说明 |
 |------|------|
 | `croncopilot task add` | 添加新任务 |
-| `croncopilot task remove <name>` | 删除任务 |
-| `croncopilot task list` | 列出所有任务 |
+| `croncopilot task remove <name> [-f/--force]` | 删除任务（`-f` 跳过确认） |
+| `croncopilot task list [-c/--category] [-s/--status]` | 列出所有任务（支持按分类、状态过滤） |
 | `croncopilot task run <name>` | 立即执行一次任务 |
 | `croncopilot task history <name>` | 查看任务执行历史和统计 |
 
@@ -184,7 +193,7 @@ croncopilot stop && croncopilot start --daemon
 | `-p, --priority` | 否 | `5` | 优先级 1-10 |
 | `--timeout` | 否 | `3600` | 超时时间(秒)，必须 ≥ 1 |
 | `--max-retries` | 否 | `3` | 最大重试次数，必须 ≥ 0 |
-| `--max-instances` | 否 | `1` | 最大并发实例数 |
+| `--max-instances` | 否 | `1` | 最大并发实例数，必须 ≥ 1 |
 | `--category` | 否 | `""` | 分类 |
 | `--description` | 否 | `""` | 描述 |
 | `--depends-on` | 否 | — | 依赖的任务名称（可多次指定） |
@@ -195,9 +204,38 @@ croncopilot stop && croncopilot start --daemon
 | 命令 | 说明 |
 |------|------|
 | `croncopilot script add` | 注册脚本（支持 `--venv` 指定独立虚拟环境路径） |
-| `croncopilot script remove <name>` | 注销脚本 |
-| `croncopilot script list` | 列出所有脚本 |
+| `croncopilot script remove <name> [--delete-file]` | 注销脚本（`--delete-file` 同时删除脚本文件） |
+| `croncopilot script list [-c/--category]` | 列出所有脚本（支持按分类过滤） |
 | `croncopilot script info <name>` | 查看脚本详情和版本历史 |
+
+**script add 选项：**
+
+| 选项 | 必填 | 默认值 | 说明 |
+|------|------|--------|------|
+| `-p, --path` | 是 | — | 脚本文件路径 |
+| `-n, --name` | 否 | 文件名 | 脚本名称（默认使用文件名） |
+| `-a, --author` | 否 | `""` | 作者 |
+| `-d, --description` | 否 | `""` | 描述 |
+| `-c, --category` | 否 | `""` | 分类 |
+| `--venv` | 否 | `""` | 虚拟环境路径 |
+
+### 虚拟环境隔离
+
+为脚本指定独立的 Python 虚拟环境，避免不同脚本间的依赖冲突：
+
+```bash
+# 创建虚拟环境
+python -m venv ~/.croncopilot/venvs/my-script-env
+~/.croncopilot/venvs/my-script-env/bin/pip install requests pandas
+
+# 注册脚本并关联虚拟环境
+croncopilot script add \
+    --path scripts/data_fetch.py \
+    --name data-fetch \
+    --venv ~/.croncopilot/venvs/my-script-env
+```
+
+指定虚拟环境后，CronCopilot 将使用该环境中的 Python 解释器执行脚本，确保依赖隔离。
 
 ### 任务执行历史
 
@@ -212,6 +250,14 @@ croncopilot task history <name> -d 7 -l 50
 croncopilot task history <name> --stats-only
 ```
 
+**task history 选项：**
+
+| 选项 | 默认值 | 说明 |
+|------|--------|------|
+| `-d, --days` | `30` | 查看最近 N 天的记录 |
+| `-l, --limit` | `20` | 显示最近 N 条执行记录 |
+| `--stats-only` | — | 仅显示统计摘要 |
+
 ### 调度表达式格式
 
 | 类型 | 格式 | 示例 |
@@ -221,6 +267,8 @@ croncopilot task history <name> --stats-only
 | `weekly` | `day@HH:MM` | `mon@08:00` (每周一 8:00) |
 | `monthly` | `day@HH:MM` | `1@08:00` (每月 1 日 8:00) |
 | `interval` | `<数字><单位>` | `30m`, `2h`, `1d`, `90s` |
+
+> **cron 表达式格式：** `分钟 小时 日期 月份 星期`，例如 `0 9 * * 1-5` 表示周一至周五 9:00 执行。
 
 ## 节假日/工作日识别
 
@@ -334,6 +382,8 @@ script:
 pid_file: "~/.croncopilot/croncopilot.pid"
 ```
 
+> **启用邮件告警：** 将 `alert.email.enabled` 设为 `true`，填写 SMTP 服务器信息和收件人列表。配置完成后，任务失败时系统将自动发送告警邮件。常见 SMTP 配置示例：Gmail（`smtp.gmail.com:587`）、QQ邮箱（`smtp.qq.com:587`）。
+
 ## 配置热重载
 
 修改 `config.yaml` 后，无需重启服务，发送 `SIGHUP` 信号即可热重载配置：
@@ -342,47 +392,58 @@ pid_file: "~/.croncopilot/croncopilot.pid"
 kill -HUP $(cat ~/.croncopilot/croncopilot.pid)
 ```
 
-**热重载作用：**
-- 重新加载所有配置项（调度器参数、告警设置、日志级别等）
-- 刷新已有任务的调度参数（如 misfire_grace_time、coalesce、max_instances）
+**生效范围：**
 
-**注意：** 任务定义的新增/删除需通过 `croncopilot task add/remove` CLI 命令完成，热重载仅作用于配置项。
+- 调度器参数（线程池大小、时区等）
+- 告警设置（阈值、邮件配置等）
+- 日志级别
+- 已有任务的调度参数（misfire_grace_time、coalesce、max_instances）
+
+**不支持热重载的操作：**
+
+- 任务定义的新增/删除 — 需通过 `croncopilot task add/remove` CLI 命令完成
+- 数据库路径变更 — 需重启服务
 
 ## 系统服务部署
 
-### Linux (systemd)
-
-```bash
-# 生成服务文件（自动检测平台）
-# 或直接使用 deploy/croncopilot.service 模板
-
-sudo cp deploy/croncopilot.service /etc/systemd/system/
-# 编辑文件替换 %USER%, %PYTHON%, %HOME% 占位符
-sudo systemctl daemon-reload
-sudo systemctl enable croncopilot
-sudo systemctl start croncopilot
-```
-
-### macOS (launchd)
-
-```bash
-cp deploy/com.croncopilot.plist ~/Library/LaunchAgents/
-# 编辑文件替换 %PYTHON%, %HOME% 占位符
-launchctl load ~/Library/LaunchAgents/com.croncopilot.plist
-```
-
-### 使用内置生成器
+### 方式一：使用内置生成器（推荐）
 
 ```python
 from croncopilot.deploy.service import ServiceGenerator
 
 generator = ServiceGenerator()
-generator.install_service()  # 自动检测平台并生成配置
+generator.install_service()  # 自动检测平台、填充路径并安装服务
+```
+
+`ServiceGenerator` 会自动检测当前平台（Linux/macOS），并填充用户名、Python 解释器路径、Home 目录等信息，生成可直接使用的服务配置文件，同时打印后续安装命令供手动执行。
+
+### 方式二：手动部署模板文件
+
+如需手动控制服务配置，可使用 `deploy/` 目录下的模板文件，但需要手动替换其中的占位符。
+
+**Linux (systemd)：**
+
+```bash
+sudo cp deploy/croncopilot.service /etc/systemd/system/
+# 编辑文件，将 %USER%, %PYTHON%, %HOME% 替换为实际值
+sudo vim /etc/systemd/system/croncopilot.service
+sudo systemctl daemon-reload
+sudo systemctl enable croncopilot
+sudo systemctl start croncopilot
+```
+
+**macOS (launchd)：**
+
+```bash
+cp deploy/com.croncopilot.plist ~/Library/LaunchAgents/
+# 编辑文件，将 %PYTHON%, %HOME% 替换为实际值
+vim ~/Library/LaunchAgents/com.croncopilot.plist
+launchctl load ~/Library/LaunchAgents/com.croncopilot.plist
 ```
 
 ## 架构说明
 
-```
+```text
 CronCopilot
 ├── config/         配置管理 (YAML 加载、Schema 校验、热加载)
 ├── core/           核心调度 (APScheduler 集成、任务执行器、优先级队列、节假日识别)
@@ -397,7 +458,7 @@ CronCopilot
 
 ### 回调链
 
-```
+```text
 TaskExecutor.on_task_start  →  ExecutionTracker.on_task_start
 TaskExecutor.on_task_complete  →  ExecutionTracker.on_task_complete
                                     →  AlertManager.check_and_alert
@@ -458,6 +519,66 @@ if __name__ == "__main__":
 - 退出码 `0` = 成功，非 `0` = 失败
 - stdout 会被记录到执行日志
 - stderr 会在失败时用于告警消息
+
+**执行环境：**
+
+- 脚本通过子进程方式执行（`python script.py`），与 CronCopilot 主进程隔离
+- 如果脚本关联了虚拟环境，将使用该环境的 Python 解释器
+- 脚本超时时间通过 `--timeout` 参数配置（默认 3600 秒），超时后进程将被终止
+
+## 常见问题与故障排除
+
+### 日志在哪里？
+
+默认日志目录为 `~/.croncopilot/logs/`，可在 `config.yaml` 中通过 `log.log_dir` 修改。查看最新日志：
+
+```bash
+# 查看调度器日志
+ls -lt ~/.croncopilot/logs/
+tail -f ~/.croncopilot/logs/croncopilot.log
+```
+
+### 启动失败怎么办？
+
+1. **PID 文件冲突** — 如果上次异常退出留下了 PID 文件，删除后重试：
+
+   ```bash
+   rm ~/.croncopilot/croncopilot.pid
+   croncopilot start --daemon
+   ```
+
+2. **端口/进程占用** — 检查是否有残留进程：
+
+   ```bash
+   croncopilot status
+   # 如显示已运行，先停止
+   croncopilot stop
+   ```
+
+3. **配置文件错误** — 检查 YAML 语法：
+
+   ```bash
+   python -c "import yaml; yaml.safe_load(open('~/.croncopilot/config.yaml'.replace('~', __import__('os').path.expanduser('~'))))"
+   ```
+
+### 任务执行失败如何排查？
+
+```bash
+# 查看任务执行历史和失败统计
+croncopilot task history <task-name>
+
+# 查看最近 7 天、显示 50 条记录
+croncopilot task history <task-name> -d 7 -l 50
+
+# 查看系统健康状态
+croncopilot health
+```
+
+失败的 stderr 输出会记录在执行日志中，同时触发告警通知（如已配置）。
+
+### 配置路径中的 `~` 是什么意思？
+
+配置文件中的路径支持 `~` 符号表示用户主目录，系统启动时会自动展开。例如 `~/.croncopilot/data.db` 会展开为 `/home/username/.croncopilot/data.db`。
 
 ## 贡献指南
 
