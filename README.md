@@ -50,6 +50,9 @@
 git clone https://gitee.com/eden2f/cron-copilot.git
 cd CronCopilot
 
+# 安装（生产模式）【推荐】
+pip install .
+
 # 安装（开发模式）
 pip install -e .
 
@@ -123,7 +126,7 @@ croncopilot stop
 
 ### 开发模式
 
-本项目采用 `pip install -e .` 开发模式安装，源码修改后自动生效，无需重新安装。
+若通过 `pip install -e .` 开发模式安装，源码修改后自动生效，无需重新安装。
 升级代码后，重启服务即可：
 
 ```bash
