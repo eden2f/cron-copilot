@@ -1040,6 +1040,74 @@ def script_remove(ctx: click.Context, name: str, delete_file: bool) -> None:
     click.echo(f"✓ 脚本 '{name}' 已注销")
 
 
+@script.command("update")
+@click.argument("name")
+@click.option("--path", "-p", default=None, help="新脚本文件路径")
+@click.option("--author", "-a", default=None, help="作者")
+@click.option("--description", "-d", default=None, help="描述")
+@click.option("--category", "-c", default=None, help="分类")
+@click.option("--venv", default=None, help="虚拟环境路径")
+@click.pass_context
+def script_update(
+    ctx: click.Context,
+    name: str,
+    path: Optional[str],
+    author: Optional[str],
+    description: Optional[str],
+    category: Optional[str],
+    venv: Optional[str],
+) -> None:
+    """更新脚本文件或元信息
+
+    指定 --path 时会将新脚本复制到管理目录，并在内容变化时自动备份旧版本。
+    其他选项用于更新脚本的元信息。
+    """
+    config_path = ctx.obj.get("config_path") or _DEFAULT_CONFIG_PATH
+
+    try:
+        config, db_manager = _init_light(config_path)
+    except Exception as exc:
+        click.echo(f"✗ 初始化失败: {exc}", err=True)
+        sys.exit(1)
+
+    from croncopilot.scripts.manager import ScriptManager
+
+    mgr = ScriptManager(config.script, db_manager)
+
+    metadata_kwargs: Dict[str, Any] = {}
+    if author is not None:
+        metadata_kwargs["author"] = author
+    if description is not None:
+        metadata_kwargs["description"] = description
+    if category is not None:
+        metadata_kwargs["category"] = category
+    if venv is not None:
+        metadata_kwargs["venv_path"] = venv
+
+    if path is None and not metadata_kwargs:
+        click.echo("未指定任何更新字段（使用 --help 查看可更新选项）")
+        return
+
+    try:
+        mgr.update_script(name, new_path=path, **metadata_kwargs)
+    except ValueError as exc:
+        click.echo(f"✗ {exc}", err=True)
+        sys.exit(1)
+    except FileNotFoundError as exc:
+        click.echo(f"✗ {exc}", err=True)
+        sys.exit(1)
+    except Exception as exc:
+        click.echo(f"✗ 更新失败: {exc}", err=True)
+        sys.exit(1)
+
+    updated: list[str] = []
+    if path is not None:
+        updated.append("脚本文件")
+    if metadata_kwargs:
+        updated.append(f"元信息 ({', '.join(metadata_kwargs.keys())})")
+    click.echo(f"✓ 脚本 '{name}' 已更新 ({'; '.join(updated)})")
+
+
 @script.command("list")
 @click.option("--category", "-c", default=None, help="按分类过滤")
 @click.pass_context

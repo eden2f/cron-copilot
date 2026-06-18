@@ -725,6 +725,71 @@ class TestScriptInfo:
         assert "不存在" in result.output
 
 
+class TestScriptUpdate:
+    """script update 命令测试."""
+
+    @patch("croncopilot.main._init_light")
+    def test_script_update_file_success(self, mock_init_light):
+        """script update 更新脚本文件成功."""
+        mock_init_light.return_value = (_make_config(), _make_db_manager())
+
+        runner = CliRunner()
+        with patch("croncopilot.scripts.manager.ScriptManager") as MockSM:
+            result = runner.invoke(cli, [
+                "script", "update", "my_script", "--path", "/tmp/new_script.py",
+            ])
+
+        assert result.exit_code == 0, result.output
+        MockSM.return_value.update_script.assert_called_once()
+        assert "已更新" in result.output
+
+    @patch("croncopilot.main._init_light")
+    def test_script_update_metadata(self, mock_init_light):
+        """script update 更新元信息."""
+        mock_init_light.return_value = (_make_config(), _make_db_manager())
+
+        runner = CliRunner()
+        with patch("croncopilot.scripts.manager.ScriptManager") as MockSM:
+            result = runner.invoke(cli, [
+                "script", "update", "my_script",
+                "--author", "alice", "--description", "new desc",
+            ])
+
+        assert result.exit_code == 0, result.output
+        MockSM.return_value.update_script.assert_called_once_with(
+            "my_script", new_path=None,
+            author="alice", description="new desc",
+        )
+        assert "已更新" in result.output
+
+    @patch("croncopilot.main._init_light")
+    def test_script_update_not_registered(self, mock_init_light):
+        """script update 脚本未注册时报错."""
+        mock_init_light.return_value = (_make_config(), _make_db_manager())
+
+        runner = CliRunner()
+        with patch("croncopilot.scripts.manager.ScriptManager") as MockSM:
+            MockSM.return_value.update_script.side_effect = ValueError("not registered")
+            result = runner.invoke(cli, [
+                "script", "update", "ghost", "--path", "/tmp/new.py",
+            ])
+
+        assert result.exit_code != 0
+        assert "not registered" in result.output
+
+    @patch("croncopilot.main._init_light")
+    def test_script_update_no_options(self, mock_init_light):
+        """script update 未指定任何选项时提示."""
+        mock_init_light.return_value = (_make_config(), _make_db_manager())
+
+        runner = CliRunner()
+        with patch("croncopilot.scripts.manager.ScriptManager"):
+            result = runner.invoke(cli, ["script", "update", "my_script"])
+
+        assert result.exit_code == 0
+        assert "未指定任何更新字段" in result.output
+
+
 # ======================================================================
 # CLI group options
 # ======================================================================

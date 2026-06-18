@@ -239,6 +239,7 @@ croncopilot task update my-task --disable
 |------|------|
 | `croncopilot script add` | 注册脚本（支持 `--venv` 指定独立虚拟环境路径） |
 | `croncopilot script remove <name> [--delete-file]` | 注销脚本（`--delete-file` 同时删除脚本文件） |
+| `croncopilot script update <name> [-p/--path] [选项]` | 更新脚本文件或元信息（自动备份旧版本） |
 | `croncopilot script list [-c/--category]` | 列出所有脚本（支持按分类过滤） |
 | `croncopilot script info <name>` | 查看脚本详情和版本历史 |
 
@@ -252,6 +253,26 @@ croncopilot task update my-task --disable
 | `-d, --description` | 否 | `""` | 描述 |
 | `-c, --category` | 否 | `""` | 分类 |
 | `--venv` | 否 | `""` | 虚拟环境路径 |
+
+**script update 选项：**
+
+`script update` 只更新显式指定的字段，未指定的字段保持不变。指定 `-p/--path` 时，若脚本内容有变化则自动备份旧版本。
+
+| 选项 | 说明 |
+|------|------|
+| `-p, --path` | 新脚本文件路径 |
+| `-a, --author` | 作者 |
+| `-d, --description` | 描述（传空串清空） |
+| `-c, --category` | 分类（传空串清空） |
+| `--venv` | 虚拟环境路径 |
+
+```bash
+# 升级脚本文件
+croncopilot script update my-script --path scripts/new_version.py
+
+# 修改元信息
+croncopilot script update my-script --author "Eden" --description "v2.0"
+```
 
 ### 虚拟环境隔离
 
