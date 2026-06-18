@@ -219,6 +219,46 @@ class DaemonManager:
         return True
 
     # ------------------------------------------------------------------
+    # Reload notification
+    # ------------------------------------------------------------------
+
+    def notify_reload(self) -> bool:
+        """通知运行中的 daemon 重新加载任务配置（发送 ``SIGHUP``）。
+
+        读取 PID 文件并向对应进程发送 ``SIGHUP`` 信号。daemon 收到
+        ``SIGHUP`` 后会调用 ``scheduler.reload_tasks()`` 从数据库重新
+        加载全部任务，从而保证 CLI 对任务的增删改能即时生效，避免
+        出现“数据库已改但内存调度器仍用旧配置”的不一致问题。
+
+        Returns:
+            ``True`` 表示信号已成功发送；``False`` 表示没有运行中的
+            daemon、当前平台不支持 ``SIGHUP`` 或发送失败。
+        """
+        if not hasattr(signal, "SIGHUP"):
+            logger.debug("SIGHUP not available on this platform; skip reload notify")
+            return False
+
+        pid = self.get_pid()
+        if pid is None:
+            logger.debug("No PID file found; daemon may not be running")
+            return False
+
+        if not self.is_running():
+            logger.debug("Daemon (PID %d) is not running; skip reload notify", pid)
+            return False
+
+        try:
+            os.kill(pid, signal.SIGHUP)
+            logger.info("Sent SIGHUP to daemon (PID: %d) to reload tasks", pid)
+            return True
+        except ProcessLookupError:
+            logger.warning("Daemon PID %d disappeared before SIGHUP was sent", pid)
+            return False
+        except OSError as exc:
+            logger.warning("Failed to send SIGHUP to PID %d: %s", pid, exc)
+            return False
+
+    # ------------------------------------------------------------------
     # Single-instance protection
     # ------------------------------------------------------------------
 

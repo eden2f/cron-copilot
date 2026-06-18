@@ -20,7 +20,7 @@
 - **智能告警** — 即时失败告警、连续失败告警、性能阈值告警，支持邮件通知
 - **异常自愈** — 自动重试 (指数退避)、健康检查、死锁检测与自动终止
 - **守护进程** — 支持前台/后台运行，PID 管理，优雅关闭
-- **配置热重载** — 修改配置后发送 SIGHUP 信号即可生效，无需重启
+- **配置热重载** — 修改配置或通过 CLI 增删改任务后自动通知调度器重载，无需重启
 - **系统服务** — 自动生成 Linux (systemd) / macOS (launchd) 服务配置（Windows 仅生成启动脚本，不支持原生服务化部署）
 
 ## 系统要求
@@ -113,6 +113,9 @@ croncopilot task add \
 
 # 手动执行一次
 croncopilot task run my-task
+
+# 修改任务调度（无需重启调度器，自动热重载）
+croncopilot task update my-task --schedule "0 10,18 * * *"
 ```
 
 ### 启动调度器
@@ -177,6 +180,7 @@ croncopilot stop && croncopilot start --daemon
 | 命令 | 说明 |
 |------|------|
 | `croncopilot task add` | 添加新任务 |
+| `croncopilot task update <name> [选项]` | 更新任务配置（仅修改指定字段） |
 | `croncopilot task remove <name> [-f/--force]` | 删除任务（`-f` 跳过确认） |
 | `croncopilot task list [-c/--category] [-s/--status]` | 列出所有任务（支持按分类、状态过滤） |
 | `croncopilot task run <name>` | 立即执行一次任务 |
@@ -198,6 +202,36 @@ croncopilot stop && croncopilot start --daemon
 | `--description` | 否 | `""` | 描述 |
 | `--depends-on` | 否 | — | 依赖的任务名称（可多次指定） |
 | `--holiday-mode` | 否 | `none` | 节假日模式 (none/workday_only/holiday_only/skip_holiday/skip_workday) |
+
+**task update 选项：**
+
+`task update` 只更新显式指定的字段，未指定的字段保持不变。修改完成后会自动通知运行中的调度器重新加载（见[配置热重载](#配置热重载)），无需手动重启。
+
+| 选项 | 说明 |
+|------|------|
+| `--new-name` | 新任务名称 |
+| `-s, --script` | 脚本路径 |
+| `-t, --schedule-type` | 调度类型 (cron/daily/weekly/monthly/interval) |
+| `-S, --schedule` | 调度表达式 |
+| `-p, --priority` | 优先级 1-10 |
+| `--timeout` | 超时时间(秒) |
+| `--max-retries` | 最大重试次数 |
+| `--max-instances` | 最大并发实例数 |
+| `--category` | 分类（传空串清空） |
+| `--description` | 描述（传空串清空） |
+| `--holiday-mode` | 节假日模式 (none/workday_only/holiday_only/skip_holiday/skip_workday) |
+| `--enable / --disable` | 启用/禁用任务 |
+
+```bash
+# 修改调度时间（每天 10:00 和 18:00）
+croncopilot task update my-task --schedule-type cron --schedule "0 10,18 * * *"
+
+# 调整优先级并切换为仅工作日执行
+croncopilot task update my-task --priority 2 --holiday-mode workday_only
+
+# 临时禁用任务
+croncopilot task update my-task --disable
+```
 
 ### 脚本管理
 
@@ -386,22 +420,27 @@ pid_file: "~/.croncopilot/croncopilot.pid"
 
 ## 配置热重载
 
-修改 `config.yaml` 后，无需重启服务，发送 `SIGHUP` 信号即可热重载配置：
+CronCopilot 支持两类热重载，均无需重启服务：
+
+**1. 配置文件热重载** — 修改 `config.yaml` 后，发送 `SIGHUP` 信号即可生效（watchdog 也会自动监听文件变化并触发重载）：
 
 ```bash
 kill -HUP $(cat ~/.croncopilot/croncopilot.pid)
 ```
+
+**2. 任务热重载** — 通过 CLI 执行 `task add` / `task update` / `task remove` 后，会自动通过 PID 文件向运行中的调度器发送 `SIGHUP`，调度器收到后从数据库重新加载全部任务。因此任务的增删改均可即时生效，无需手动重启或手动发信号。
+
+> 若调度器未运行，CLI 会提示「修改将在下次启动时生效」——配置已写入数据库，下次 `croncopilot start` 时自动加载。
 
 **生效范围：**
 
 - 调度器参数（线程池大小、时区等）
 - 告警设置（阈值、邮件配置等）
 - 日志级别
-- 已有任务的调度参数（misfire_grace_time、coalesce、max_instances）
+- 任务的调度参数、节假日模式、启停状态等（含任务的新增/删除/更新，由 `task add/update/remove` 自动触发重载）
 
 **不支持热重载的操作：**
 
-- 任务定义的新增/删除 — 需通过 `croncopilot task add/remove` CLI 命令完成
 - 数据库路径变更 — 需重启服务
 
 ## 系统服务部署

@@ -147,6 +147,36 @@ def _init_components(config_path: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
+def _notify_daemon_reload(config: Any) -> None:
+    """通知运行中的 daemon 重新加载任务（发送 ``SIGHUP``）。
+
+    CLI 对任务的增删改只写入数据库，运行中的调度器进程并不会自动感知。
+    这里通过 PID 文件找到 daemon 并发送 ``SIGHUP``，daemon 收到后会
+    调用 ``scheduler.reload_tasks()`` 从数据库重新加载全部任务，从而
+    避免“数据库已改但内存调度器仍用旧配置”的不一致问题。
+
+    若 daemon 未运行，则给出提示并静默跳过（修改会在下次启动时生效）。
+
+    Parameters:
+        config: 应用配置（用于获取 ``pid_file`` 路径）。
+    """
+    from croncopilot.deploy.daemon import DaemonManager
+
+    dm = DaemonManager(config.pid_file)
+    if not dm.is_running():
+        click.echo("• 调度器未运行，修改将在下次启动时生效")
+        return
+
+    if dm.notify_reload():
+        click.echo("• 已通知运行中的调度器重新加载任务")
+    else:
+        click.echo(
+            "• 调度器运行中，但发送重载信号失败（可手动执行 "
+            "'croncopilot stop && croncopilot start --daemon'）",
+            err=True,
+        )
+
+
 # ======================================================================
 # CLI definition
 # ======================================================================
@@ -555,6 +585,8 @@ def task_add(
 
     click.echo(f"✓ 任务 '{name}' 已添加 (ID: {task_config.task_id})")
 
+    _notify_daemon_reload(config)
+
 
 @task.command("remove")
 @click.argument("name")
@@ -585,6 +617,134 @@ def task_remove(ctx: click.Context, name: str, force: bool) -> None:
         sys.exit(1)
 
     click.echo(f"✓ 任务 '{name}' 已删除")
+
+    _notify_daemon_reload(config)
+
+
+@task.command("update")
+@click.argument("name")
+@click.option("--new-name", default=None, help="新任务名称")
+@click.option("--script", "-s", default=None, help="脚本路径")
+@click.option(
+    "--schedule-type",
+    "-t",
+    type=click.Choice(["cron", "daily", "weekly", "monthly", "interval"]),
+    default=None,
+    help="调度类型",
+)
+@click.option("--schedule", "-S", default=None, help="调度表达式")
+@click.option("--priority", "-p", default=None, type=click.IntRange(1, 10), help="优先级 (1-10)")
+@click.option("--timeout", default=None, type=click.IntRange(1), help="超时时间(秒)")
+@click.option("--max-retries", default=None, type=click.IntRange(0), help="最大重试次数")
+@click.option("--max-instances", default=None, type=int, help="最大并发实例数")
+@click.option("--category", default=None, help="分类（传空串清空）")
+@click.option("--description", default=None, help="描述（传空串清空）")
+@click.option(
+    "--holiday-mode",
+    type=click.Choice(["none", "workday_only", "holiday_only", "skip_holiday", "skip_workday"]),
+    default=None,
+    help="节假日模式",
+)
+@click.option("--enable/--disable", "enabled", default=None, help="启用/禁用任务")
+@click.pass_context
+def task_update(
+    ctx: click.Context,
+    name: str,
+    new_name: Optional[str],
+    script: Optional[str],
+    schedule_type: Optional[str],
+    schedule: Optional[str],
+    priority: Optional[int],
+    timeout: Optional[int],
+    max_retries: Optional[int],
+    max_instances: Optional[int],
+    category: Optional[str],
+    description: Optional[str],
+    holiday_mode: Optional[str],
+    enabled: Optional[bool],
+) -> None:
+    """更新任务配置
+
+    只更新显式指定的字段。修改后会自动通知运行中的调度器重新加载，
+    无需手动重启 daemon。
+    """
+    config_path = ctx.obj.get("config_path") or _DEFAULT_CONFIG_PATH
+
+    try:
+        config, db_manager = _init_light(config_path)
+    except Exception as exc:
+        click.echo(f"✗ 初始化失败: {exc}", err=True)
+        sys.exit(1)
+
+    record = db_manager.get_task_by_name(name)
+    if record is None:
+        click.echo(f"✗ 任务 '{name}' 不存在", err=True)
+        sys.exit(1)
+
+    from croncopilot.core.task import parse_schedule
+
+    updates: Dict[str, Any] = {}
+
+    if new_name is not None and new_name != name:
+        existing = db_manager.get_task_by_name(new_name)
+        if existing is not None and existing.id != record.id:
+            click.echo(f"✗ 任务名 '{new_name}' 已被占用", err=True)
+            sys.exit(1)
+        updates["name"] = new_name
+
+    if script is not None:
+        script_path = os.path.abspath(os.path.expanduser(script))
+        if not os.path.isfile(script_path):
+            click.echo(f"✗ 脚本文件不存在: {script_path}", err=True)
+            sys.exit(1)
+        updates["script_path"] = script_path
+
+    if schedule_type is not None:
+        updates["schedule_type"] = schedule_type
+    if schedule is not None:
+        updates["cron_expression"] = schedule
+
+    # 校验调度表达式（使用生效后的 type/expr 组合）
+    if "schedule_type" in updates or "cron_expression" in updates:
+        eff_type = updates.get("schedule_type", record.schedule_type or "cron")
+        eff_expr = updates.get("cron_expression", record.cron_expression or "")
+        try:
+            parse_schedule(eff_type, eff_expr)
+        except ValueError as exc:
+            click.echo(f"✗ 调度表达式无效: {exc}", err=True)
+            sys.exit(1)
+
+    if priority is not None:
+        updates["priority"] = priority
+    if timeout is not None:
+        updates["timeout"] = timeout
+    if max_retries is not None:
+        updates["max_retries"] = max_retries
+    if max_instances is not None:
+        updates["max_instances"] = max_instances
+    if category is not None:
+        updates["category"] = category or None
+    if description is not None:
+        updates["description"] = description or None
+    if holiday_mode is not None:
+        updates["holiday_mode"] = holiday_mode
+    if enabled is not None:
+        updates["enabled"] = enabled
+
+    if not updates:
+        click.echo("未指定任何更新字段（使用 --help 查看可更新选项）")
+        return
+
+    try:
+        db_manager.update_task(record.id, **updates)
+    except Exception as exc:
+        click.echo(f"✗ 更新失败: {exc}", err=True)
+        sys.exit(1)
+
+    changed = ", ".join(updates.keys())
+    click.echo(f"✓ 任务 '{name}' 已更新 (字段: {changed})")
+
+    _notify_daemon_reload(config)
 
 
 @task.command("list")
